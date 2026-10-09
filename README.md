@@ -42,8 +42,8 @@ npm run bench          # 前端：解析 / 切片 / 剖面 / 体数据 / 降采�
 npm run bench:backend  # 后端：nc_meta / nc_slice_2d / nc_profile / nc_volume（release 构建）
 ```
 
-两者均输出每次调用的中位数 / 最小 / 最大耗时。后端大文件用例默认读取开发用的
-`gps_pwv/data/pwv.nc`（1.37GB），可通过环境变量指向其他文件；文件不存在时自动跳过：
+两者均输出每次调用的中位数 / 最小 / 最大耗时。后端大文件用例通过环境变量
+`NC_BENCH_BIG` 指定一个较大的 NetCDF 文件；未设置或文件不存在时自动跳过：
 
 ```sh
 $env:NC_BENCH_BIG = "D:\data\huge.nc"; npm run bench:backend

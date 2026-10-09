@@ -1,21 +1,23 @@
 use app_lib::nc_backend;
+use std::path::PathBuf;
 
-/// Optional large file used for integration checks. Tests skip when absent so
-/// the suite still passes on machines that don't have the sample.
-const BIG: &str = r"C:\Users\Administrator\Workspaces\projects\gps_pwv\data\pwv.nc";
-
-fn big_available() -> bool {
-    std::path::Path::new(BIG).exists()
+/// Optional large NetCDF file for integration checks, taken from `NC_BENCH_BIG`.
+/// Tests skip when it is unset or missing so the suite passes anywhere.
+fn big_path() -> Option<PathBuf> {
+    let p = std::env::var("NC_BENCH_BIG").ok()?;
+    let path = PathBuf::from(p);
+    path.exists().then_some(path)
 }
 
 #[test]
 fn big_file_meta_is_fast() {
-    if !big_available() {
-        eprintln!("skip: {BIG} not present");
+    let Some(big) = big_path() else {
+        eprintln!("skip: NC_BENCH_BIG not set or missing");
         return;
-    }
+    };
+    let path = big.to_string_lossy().into_owned();
     let t0 = std::time::Instant::now();
-    let meta = nc_backend::nc_meta(BIG.to_string()).expect("meta");
+    let meta = nc_backend::nc_meta(path).expect("meta");
     let dt = t0.elapsed();
     println!("meta in {dt:?}: format={} dims={:?}", meta.format,
         meta.dimensions.iter().map(|d| (&d.name, d.size)).collect::<Vec<_>>());
@@ -28,18 +30,19 @@ fn big_file_meta_is_fast() {
 
 #[test]
 fn big_file_slice_and_profile() {
-    if !big_available() {
-        eprintln!("skip: {BIG} not present");
+    let Some(big) = big_path() else {
+        eprintln!("skip: NC_BENCH_BIG not set or missing");
         return;
-    }
-    let meta = nc_backend::nc_meta(BIG.to_string()).expect("meta");
-    let big = meta.variables.iter().find(|v| v.shape.len() == 3).expect("3D var");
+    };
+    let path = big.to_string_lossy().into_owned();
+    let meta = nc_backend::nc_meta(path.clone()).expect("meta");
+    let var = meta.variables.iter().find(|v| v.shape.len() == 3).expect("3D var");
 
-    // time=0 plane (lat x lon)
+    // leading-dim index 0 plane over the last two dims (y x x)
     let t0 = std::time::Instant::now();
     let s = nc_backend::nc_slice_2d(
-        BIG.to_string(),
-        big.name.clone(),
+        path.clone(),
+        var.name.clone(),
         1,
         2,
         vec![0, 0, 0],
@@ -50,17 +53,17 @@ fn big_file_slice_and_profile() {
     assert_eq!(s.data.len(), s.nx * s.ny);
     assert!(s.max > s.min, "slice should have real spread");
 
-    // profile along time at (lat=0, lon=0)
-    let p = nc_backend::nc_profile(BIG.to_string(), big.name.clone(), 0, vec![0, 0, 0])
+    // profile along the first dim at the corner index
+    let p = nc_backend::nc_profile(path.clone(), var.name.clone(), 0, vec![0, 0, 0])
         .expect("profile");
     println!("profile {} points along {}", p.values.len(), p.coord_name);
-    assert_eq!(p.values.len(), 87648);
+    assert_eq!(p.values.len() as u64, var.shape[0]);
 
     // volume (downsampled)
     let t1 = std::time::Instant::now();
     let v = nc_backend::nc_volume(
-        BIG.to_string(),
-        big.name.clone(),
+        path,
+        var.name.clone(),
         0,
         1,
         2,

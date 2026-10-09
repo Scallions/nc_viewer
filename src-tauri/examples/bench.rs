@@ -4,17 +4,17 @@
 //!   cargo bench --manifest-path src-tauri/Cargo.toml
 //!
 //! The large-file cases skip automatically when the fixture is absent, so the
-//! suite stays green on any machine. Point `NC_BENCH_BIG` at a real file to
-//! exercise them (defaults to the gps_pwv sample used during development).
+//! suite stays green on any machine. Point `NC_BENCH_BIG` at a real NetCDF file
+//! to exercise them.
 
 use app_lib::nc_backend;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
+/// Path to a large NetCDF file for the big-file cases, or `None` when unset or
+/// missing (those cases then skip).
 fn big_path() -> Option<String> {
-    let p = std::env::var("NC_BENCH_BIG").unwrap_or_else(|_| {
-        r"C:\Users\Administrator\Workspaces\projects\gps_pwv\data\pwv.nc".to_string()
-    });
+    let p = std::env::var("NC_BENCH_BIG").ok()?;
     if Path::new(&p).exists() {
         Some(p)
     } else {
