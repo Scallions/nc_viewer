@@ -25,7 +25,7 @@ Tauri 2 + React 19 + Vite + TypeScript 桌面应用，用于浏览 NetCDF-3 / Ne
 - `src/App.tsx` — 唯一状态容器 + 三栏布局 (文件工具栏 / `VarTree` / 视口 / `Inspector` / status bar)。变量标题与统计位于视口上方；空白页的打开入口位于主视区，拖入文件显示覆盖提示。状态: `ds, selected, slice, fixed, playing, colormap/vmin/vmax, probe, viewMode, loading/error/dragging`。视口四模式：`slice` (`Heatmap`) / `map` (`MapView`) / `profile` (`ProfileView`) / `volume` (`VolumeView`)。
 - `src/components/Heatmap.tsx` — ECharts `heatmap` 切片渲染器，浅色主题，行主序 `[ny][nx]`，右侧预留独立色标空间。色标逻辑已抽到 `src/lib/colormap.ts`（`COLORMAPS` / `colormapColors()` / `colorFor()`，供 Heatmap/MapView/VolumeView/导出 PNG 共用）。
 - `src/components/MapView.tsx` — Canvas 地图投影（`d3-geo`），逐像素双线性重采样 + `geoPath` 经纬网。投影分三组（圆柱/伪圆柱、方位、圆锥），由 `PROJECTIONS` 声明式定义（`clip`/`globe`/`parallels`/`tilt` 标志驱动参数面板）。可配置 `ProjectionSettings`：中心经纬度、缩放、裁剪角（方位族）、标准纬线（圆锥族）、`fitToData`（按数据范围而非整球适配）。中心/标准纬线在数据范围变化时自动从数据推导；未手动选过投影时，极区数据（|中心纬度|>60 且纬度跨度<90）自动切到等距方位。逐像素反投影经往返校验剔除球面域外像素（`invertInDomain`）。适配目标用 `MultiPoint`（沿边界采样）而非 `Polygon`，因 d3 会把多边形边当作大圆弧、使等纬线严重变形。输入为 lon×lat 平面（`getSlice2DAxes`）。
-- `src/components/ProfileView.tsx` — ECharts 折线垂直剖面（`getProfile`），标题带固定点标签。
+- `src/components/ProfileView.tsx` — ECharts 折线垂直剖面（`getProfile`），标题带固定点标签。点数 >4000 时用 min/max 分桶降采样到 ~4000 点（保留极值包络，标题标注「显示 N/M 点」），点数 >500 时不画逐点 symbol（`showSymbol:false`）——否则长轴（如 8 万点 time 剖面）逐点画圆会严重卡顿。CSV 导出仍用完整数据。
 - `src/components/VolumeView.tsx` — Three.js 体视（`three`）：`slices` 正交三平面 / `surface` 等值面 (`MarchingCubes`)，`OrbitControls` 旋转。相机按体尺寸和视口比例适配，缩放窗口保留用户的相对缩放/观察方向；等值面包围框对应 `[-1,1]`。输入为 `getVolume3D`（默认降采样 ≤96/边）。
 - `src/components/VarTree.tsx` — 左栏变量树，搜索 + 坐标变量过滤，数据变量/坐标分组。
 - `src/components/Inspector.tsx` — 右栏属性面板 (`dtype/shape/dims/group` + `AttrTable`)。
