@@ -5,7 +5,7 @@ import {
   Map, Pause, Play, SlidersHorizontal, Upload, X, type LucideIcon,
 } from 'lucide-react';
 import { open } from '@tauri-apps/plugin-dialog';
-import { readFile } from '@tauri-apps/plugin-fs';
+import { readFile, stat } from '@tauri-apps/plugin-fs';
 import Heatmap from './components/Heatmap';
 import { COLORMAPS, colorFor, type ColormapName } from './lib/colormap';
 import Inspector from './components/Inspector';
@@ -18,6 +18,9 @@ import {
   getSlice2DAxes, getSlice2D, getVolume3D, parseNcFile,
   type ProfileLine,
 } from './lib/ncService';
+import {
+  LARGE_FILE_BYTES, hasBackend, isBackendDataset, openBackend,
+} from './lib/ncBackend';
 import type { GeoRole, NcDataset, Slice2D, Volume3D } from './lib/ncTypes';
 
 const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -70,33 +73,52 @@ export default function App() {
     [ds, selected],
   );
 
+  const applyDataset = useCallback((parsed: NcDataset) => {
+    setDs(parsed);
+    const first = parsed.variables.find((v) => !v.isCoord && v.shape.length >= 2)
+      ?? parsed.variables.find((v) => v.shape.length >= 2)
+      ?? parsed.variables[0] ?? null;
+    setSelected(first?.name ?? null);
+    setFixed({});
+    setProbe(null);
+    setViewMode('slice');
+    setMapSlice(null);
+    setProfile(null);
+    setProfileAxis(-1);
+    setVolume(null);
+    setVolumeAxes(null);
+    setLonLat(null);
+    setRoles([]);
+  }, []);
+
   const loadBytes = useCallback(async (bytes: Uint8Array, name: string) => {
     setLoading(true);
     setError(null);
     try {
       if (ds) closeDataset(ds);
       const parsed = await parseNcFile(bytes, name);
-      setDs(parsed);
-      const first = parsed.variables.find((v) => !v.isCoord && v.shape.length >= 2)
-        ?? parsed.variables.find((v) => v.shape.length >= 2)
-        ?? parsed.variables[0] ?? null;
-      setSelected(first?.name ?? null);
-      setFixed({});
-      setProbe(null);
-      setViewMode('slice');
-      setMapSlice(null);
-      setProfile(null);
-      setProfileAxis(-1);
-      setVolume(null);
-      setVolumeAxes(null);
-      setLonLat(null);
-      setRoles([]);
+      applyDataset(parsed);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
-  }, [ds]);
+  }, [ds, applyDataset]);
+
+  /** Large local files go through the Rust backend (range reads, no full load). */
+  const loadPath = useCallback(async (path: string) => {
+    setLoading(true);
+    setError(null);
+    try {
+      if (ds) closeDataset(ds);
+      const parsed = await openBackend(path);
+      applyDataset(parsed);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  }, [ds, applyDataset]);
 
   const handleSelect = useCallback((name: string) => {
     setSelected(name);
@@ -115,16 +137,22 @@ export default function App() {
       if (isTauri) {
         const path = await open({ multiple: false, filters: [{ name: 'NetCDF', extensions: ['nc', 'nc4', 'cdf', 'h5', 'hdf5'] }] });
         if (typeof path !== 'string' || !path) return;
-        const data = await readFile(path);
-        const name = path.split(/[\\/]/).pop() ?? path;
-        await loadBytes(data, name);
+        const size = await fileSize(path);
+        // Large files: stream from disk instead of loading GBs into memory.
+        if (hasBackend() && (size === null || size >= LARGE_FILE_BYTES)) {
+          await loadPath(path);
+        } else {
+          const data = await readFile(path);
+          const name = path.split(/[\\/]/).pop() ?? path;
+          await loadBytes(data, name);
+        }
       } else {
         fileInput.current?.click();
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
-  }, [loadBytes]);
+  }, [loadBytes, loadPath]);
 
   const onWebFile = useCallback(async (f: File) => {
     const buf = new Uint8Array(await f.arrayBuffer());
@@ -741,6 +769,9 @@ export default function App() {
       <footer className="flex h-8 shrink-0 items-center gap-2 border-t border-line bg-surface px-4 text-[11px] text-muted">
         <span className={`h-1.5 w-1.5 rounded-full ${ds ? 'bg-emerald-600' : 'bg-faint'}`} />
         <span>{loading ? '正在解析文件…' : ds ? `${ds.variables.length} 变量 · ${ds.dimensions.length} 维度` : '就绪 · 等待打开文件'}</span>
+        {ds && isBackendDataset(ds) && (
+          <span className="rounded bg-accent-soft px-1.5 py-0.5 text-[10px] text-accent" title="大文件：按需从磁盘读取，未整体载入内存">流式读取</span>
+        )}
         <div className="flex-1" />
         <Database size={12} className="text-faint" aria-hidden="true" /><span>{isTauri ? '桌面版' : 'Web 预览'}</span>
       </footer>
@@ -756,6 +787,16 @@ function downloadText(text: string, filename: string, type: string) {
   a.download = filename;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+
+/** File size in bytes via Tauri fs plugin; null when unavailable. */
+async function fileSize(path: string): Promise<number | null> {
+  try {
+    const s = await stat(path);
+    return s.size ?? null;
+  } catch {
+    return null;
+  }
 }
 
 function fmt(v: number): string {

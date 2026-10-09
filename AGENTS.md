@@ -28,7 +28,9 @@ Tauri 2 + React 19 + Vite + TypeScript 桌面应用，用于浏览 NetCDF-3 / Ne
 - `src/components/VarTree.tsx` — 左栏变量树，搜索 + 坐标变量过滤，数据变量/坐标分组。
 - `src/components/Inspector.tsx` — 右栏属性面板 (`dtype/shape/dims/group` + `AttrTable`)。
 - `src/lib/ncTypes.ts` — 类型源 (`NcDataset/NcVariable/NcDimension/NcAttribute/Slice2D/Volume3D/GeoRole`)。改类型先改此文件。
-- `src/lib/ncService.ts` — 解析 + 切片 + 降采样，无 React 依赖。魔数分流 → `parseNetCdf3` (netcdfjs 同步) / `parseNetCdf4` (h5wasm 异步)。另有 `getSlice2DAxes`（任意两维平面）、`getProfile`（1D 剖面）、`getVolume3D`（[z][y][x] 体）、`guessGeoRole`/`geoRolesFor`/`findLonLatAxes`（经纬/垂直/时间识别）、`readCoordPublic`。
+- `src/lib/ncService.ts` — 解析 + 切片 + 降采样，无 React 依赖。魔数分流 → `parseNetCdf3` (netcdfjs 同步) / `parseNetCdf4` (h5wasm 异步)。另有 `getSlice2DAxes`（任意两维平面）、`getProfile`（1D 剖面）、`getVolume3D`（[z][y][x] 体）、`guessGeoRole`/`geoRolesFor`/`findLonLatAxes`（经纬/垂直/时间识别）、`readCoordPublic`。**大文件分派**：检测到 `isBackendDataset(ds)` 时，`getSlice2DAxes`/`getProfile`/`getVolume3D`/`readCoord` 全部转发给 `ncBackend.ts`。
+- `src/lib/ncBackend.ts` — 大文件 Rust 后端封装（Tauri `invoke`）：`openBackend` / `isBackendDataset` / `getSliceBackend` / `getProfileBackend` / `getVolumeBackend` / `getCoordBackend`。阈值 `LARGE_FILE_BYTES = 64MB`；Web（非 Tauri）无后端。
+- `src-tauri/src/nc_backend.rs` — 纯 Rust 后端（`netcdf-reader` crate，无 C 依赖）。命令：`nc_meta`（仅读头，GB 文件亚毫秒）/ `nc_slice_2d` / `nc_coord` / `nc_profile` / `nc_volume`（strided hyperslab 降采样，不物化全量）。`resolve_coord_path` 支持分组内坐标变量（`depth` → `ocean/depth`）。每次命令重新 `NcFile::open`（打开极廉价），句柄仅存路径。
 - `src/lib/colormap.ts` — 色标唯一源（`STOPS` + 256 级 LUT 缓存），勿在组件内重复定义。
 - `src/lib/uiTheme.ts` — Canvas/WebGL/ECharts 的界面配色适配（坐标轴、网格、提示框、剖面曲线与等值面），与 `index.css` 的浅色 UI tokens 保持一致；科学数据色标仍由 `colormap.ts` 管理。
 - `src-tauri/src/lib.rs` + `main.rs` — Tauri 入口，仅注册 `plugin-fs` / `plugin-dialog` (+ debug 下 `plugin-log`)。
@@ -42,7 +44,7 @@ Tauri 2 + React 19 + Vite + TypeScript 桌面应用，用于浏览 NetCDF-3 / Ne
 - TypeScript 严格：`noUnusedLocals/Parameters`，`erasableSyntaxOnly` (勿用枚举/命名空间等运行时语法)，`jsx: react-jsx`。提交前跑 `npm run build`。
 - UI 优先复用语义颜色与通用控件类，避免散落硬编码配色。保留键盘 `focus-visible` 和选中控件的 `aria-pressed`，输入需有可访问标签。≤1100px 收窄侧栏，≤800px 隐藏右侧检查器以保留视口空间；工具栏允许换行，尊重 `prefers-reduced-motion`。
 - 默认科学色标为 `cividis`（蓝黄），其余色标继续可选；不要把 UI 的蓝色选中态与数据色标耦合。
-- 文件打开双路径：`'__TAURI_INTERNALS__' in window` 判别。Tauri 用 `@tauri-apps/plugin-dialog open` + `@tauri-apps/plugin-fs readFile`；Web 用隐藏 `input[type=file]` + `drag/drop files[0]`。勿用旧 `__TAURI__`。
+- 文件打开双路径：`'__TAURI_INTERNALS__' in window` 判别。Tauri 用 `@tauri-apps/plugin-dialog open` + `@tauri-apps/plugin-fs readFile`；Web 用隐藏 `input[type=file]` + `drag/drop files[0]`。勿用旧 `__TAURI__`。**大文件**：Tauri 下先 `stat` 取大小，≥`LARGE_FILE_BYTES`(64MB) 走 `openBackend` 只读元数据；Web 无后端，一律前端解析。
 - 切片规则 (`getSlice2D`/`getSlice2DAxes`)：默认后两维为 y,x（`getSlice2DAxes` 可指定任意两维）；其余维由 `fixed: Record<dim,idx>` 决定 (默认 0 并钳制)。播放 (`playing`) 以 `setInterval 300ms` 递增首个非平面维。注意：NC4 高维切片必须只固定前导维、后两维传空范围，否则统计坍缩为单值。
 - 大数组预览必经 `downsamplePlane(maxSide=600)` 块平均 (忽略 NaN)；体数据经 `getVolume3D(maxSide=96)` 降采样。
 - 属性过滤：`_` 开头 + `_NCProperties/_Netcdf4Coordinates/_Netcdf4Dimid/CLASS/NAME/REFERENCE_LIST/DIMENSION_LIST` 隐藏。
@@ -56,6 +58,7 @@ Tauri 2 + React 19 + Vite + TypeScript 桌面应用，用于浏览 NetCDF-3 / Ne
 - `h5wasm .slice(ranges)` 返回数字键普通对象非数组，用 `toFloat64` 归一；`dtype` 经 `dtypeToString` 映射 (`<d/f/i/u`, `|S`→string)。
 - 维名优先级：`get_attached_scales(i)` → `get_dimension_labels()[i]` → 1D 用变量名 → `dim{i}`。
 - `COOP/COEP` 仅配了 `server.headers`，preview/Tauri 出 wasm 问题先查头。
+- 前端解析器必须把整个文件读进 WASM 内存 — 数百 MB/GB 文件会卡死或爆堆。故大文件走 `netcdf-reader` 后端按需读 hyperslab；后端 `NcSliceInfoElem` 是 `Index(u64)` / `Slice{start,end,step}`（`end: u64::MAX` 表示到末尾），不是 `Range{start,count}`。`NcAttrValue` 变体是 `Bytes/Chars/Shorts/Ints/Floats/Doubles/UBytes/.../Strings`；`NcType` 是 `Byte/Char/Short/Int/Float/Double/UByte/...`；`NcFormat` 是 `Classic/Offset64/Cdf5/Nc4/Nc4Classic`。变量路径用相对路径（`ocean/salinity`，勿带前导 `/`）。
 - `test-data/gen.py` / `gen_vol.py` 需 `netCDF4+numpy`；`sample3.nc` (NETCDF3_64BIT) / `sample4.nc` (NETCDF4 + `/ocean` group) / `sample_vol.nc` (4D time/depth/lat/lon) 勿直接提交大文件改动。
 - `MapView` 非球投影（等距/墨卡托）画矩形边框；正交/极射用 `geoPath(proj, ctx)` 画实际球面轮廓与裁剪后的经纬网，勿按 Canvas 宽高手绘椭圆。正交投影 `invert()` 不能代替圆盘边界检查。
 - `VolumeView` 等值面经 `MarchingCubes(res=48)` 重采样，`isolation` 由 `(iso-min)/(max-min)` 钳制到 [0.01, 0.99]。

@@ -1,4 +1,7 @@
 import { NetCDFReader } from 'netcdfjs';
+import {
+  getCoordBackend, getProfileBackend, getSliceBackend, getVolumeBackend, isBackendDataset,
+} from './ncBackend';
 import type { GeoRole, NcAttribute, NcDataset, NcDimension, NcVariable, Slice2D, Volume3D } from './ncTypes';
 
 // h5wasm is loaded lazily to avoid bundling the 4MB wasm glue upfront.
@@ -345,6 +348,11 @@ export async function getSlice2DAxes(
   const ny = v.shape[yAxis];
   const nx = v.shape[xAxis];
 
+  // Large files: read straight from disk via the Rust backend, no full load.
+  if (isBackendDataset(ds)) {
+    return getSliceBackend(ds, varName, yAxis, xAxis, fixed);
+  }
+
   let plane: Float64Array | null = null;
   if (ds.format !== 'netCDF-3' && yAxis === rank - 2 && xAxis === rank - 1) {
     // fast path: server-side slice, result is already the 2D plane
@@ -397,6 +405,9 @@ export async function getSlice2DAxes(
 }
 
 async function readCoord(ds: NcDataset, dimName: string, len: number): Promise<number[] | null> {
+  if (isBackendDataset(ds)) {
+    return getCoordBackend(ds, dimName);
+  }
   const c = ds.variables.find((x) => x.shortName === dimName && x.shape.length === 1 && x.shape[0] === len);
   if (!c) return null;
   try {
@@ -525,7 +536,10 @@ export async function geoRolesFor(ds: NcDataset, v: NcVariable): Promise<GeoRole
     const units = coord
       ? String(coord.attrs.find((a) => a.name === 'units')?.value ?? '')
       : null;
-    const values = await readCoord(ds, d, ds.dimensions.find((x) => x.name === d)?.size ?? coord?.shape[0] ?? 0);
+    // backend coords are read straight from disk; frontend reads from the handle
+    const values = isBackendDataset(ds)
+      ? await getCoordBackend(ds, d)
+      : await readCoord(ds, d, ds.dimensions.find((x) => x.name === d)?.size ?? coord?.shape[0] ?? 0);
     out.push(guessGeoRole(d, values, units || null));
   }
   return out;
@@ -561,6 +575,10 @@ export async function getProfile(
   if (!v) throw new Error(`variable not found: ${varName}`);
   const rank = v.shape.length;
   if (axis < 0 || axis >= rank) throw new Error('axis out of range');
+  if (isBackendDataset(ds)) {
+    const p = await getProfileBackend(ds, varName, axis, fixed);
+    return { coords: p.coords, values: p.values, coordName: p.coordName };
+  }
   const idx: number[] = v.dims.map((d, i) => Math.min(fixed[d] ?? 0, Math.max(0, v.shape[i] - 1)));
   const n = v.shape[axis];
   let values: Float64Array;
@@ -611,6 +629,16 @@ export async function getVolume3D(
   if (new Set(axes).size !== 3) throw new Error('axes must differ');
   for (const a of axes) {
     if (a < 0 || a >= rank) throw new Error('axis out of range');
+  }
+  if (isBackendDataset(ds)) {
+    const r = await getVolumeBackend(ds, varName, zAxis, yAxis, xAxis, fixed, maxSide);
+    return {
+      data: Float64Array.from(r.data),
+      nx: r.nx, ny: r.ny, nz: r.nz,
+      xCoords: r.xCoords, yCoords: r.yCoords, zCoords: r.zCoords,
+      xName: r.xName, yName: r.yName, zName: r.zName,
+      min: r.min, max: r.max, mean: r.mean,
+    };
   }
   const idx: number[] = v.dims.map((d, i) => Math.min(fixed[d] ?? 0, Math.max(0, v.shape[i] - 1)));
   const [nz0, ny0, nx0] = [v.shape[zAxis], v.shape[yAxis], v.shape[xAxis]];
