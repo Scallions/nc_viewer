@@ -71,7 +71,7 @@ Tauri 2 + React 19 + Vite + TypeScript 桌面应用，用于浏览 NetCDF-3 / Ne
 - 维名优先级：`get_attached_scales(i)` → `get_dimension_labels()[i]` → 1D 用变量名 → `dim{i}`。
 - `COOP/COEP` 仅配了 `server.headers`，preview/Tauri 出 wasm 问题先查头。
 - 前端解析器必须把整个文件读进 WASM 内存 — 数百 MB/GB 文件会卡死或爆堆。故大文件走 `netcdf-reader` 后端按需读 hyperslab；后端 `NcSliceInfoElem` 是 `Index(u64)` / `Slice{start,end,step}`（`end: u64::MAX` 表示到末尾），不是 `Range{start,count}`。`NcAttrValue` 变体是 `Bytes/Chars/Shorts/Ints/Floats/Doubles/UBytes/.../Strings`；`NcType` 是 `Byte/Char/Short/Int/Float/Double/UByte/...`；`NcFormat` 是 `Classic/Offset64/Cdf5/Nc4/Nc4Classic`。变量路径用相对路径（`ocean/salinity`，勿带前导 `/`）。
-- `test-data/gen.py` / `gen_vol.py` 需 `netCDF4+numpy`；`sample3.nc` (NETCDF3_64BIT) / `sample4.nc` (NETCDF4 + `/ocean` group) / `sample_vol.nc` (4D time/depth/lat/lon) 勿直接提交大文件改动。
+- `test-data/gen.py` / `gen_vol.py` / `gen_demo.py` 需 `netCDF4+numpy`；`sample3.nc` (NETCDF3_64BIT) / `sample4.nc` (NETCDF4 + `/ocean` group) / `sample_vol.nc` (4D time/depth/lat/lon) / `demo.nc` (全球海温，供 README 截图) 勿直接提交大文件改动。
 - `MapView` 圆柱/伪圆柱画矩形边框，`globe` 类（方位/圆锥）用 `geoPath(proj, ctx)` 画实际球面轮廓与裁剪后的经纬网，勿按 Canvas 宽高手绘椭圆。`fitExtent` 按球面轮廓适配，球面只占画布中间一块；`proj.invert()` 在整个画布上都有定义，球面外会返回 ±180° 以外、经 `normLon` 回绕后落回数据范围的伪经度，导致同一数据被水平重复绘制多份（画布越扁平份数越多）。故逐像素反投影必须做**往返校验**（`invert` 得点再正向 `proj()` 回原像素，误差 >0.5px 判为域外，`invertInDomain()`），勿只靠正交圆盘距离判断。**适配数据范围**必须用 `MultiPoint`（沿经纬边界采样）而非 `Polygon`：d3 把多边形边解释为大圆弧，等纬线（尤其近极点）会被投影到球面大圆上，`fitExtent` 包围盒严重失真（曾致极区数据只画在画布一角）。
 - `VolumeView` 等值面经 `MarchingCubes(res=48)` 重采样，`isolation` 由 `(iso-min)/(max-min)` 钳制到 [0.01, 0.99]。
 
@@ -79,4 +79,4 @@ Tauri 2 + React 19 + Vite + TypeScript 桌面应用，用于浏览 NetCDF-3 / Ne
 
 - `README.md` — 项目文档（功能/格式/开发/测试数据/技术说明），改功能后同步更新
 - `src-tauri/tauri.conf.json` / `src-tauri/capabilities/default.json` — 桌面配置与权限
-- `test-data/gen.py`, `test-data/gen_vol.py` — 样本生成脚本（校验用脚本已删，改用浏览器拖拽打开验证）
+- `test-data/gen.py`, `test-data/gen_vol.py`, `test-data/gen_demo.py` — 样本生成脚本（校验用脚本已删，改用浏览器拖拽打开验证）；`tools/shot.py` — README 截图脚本（需 playwright，先 `npm run dev`，固定 1440×900 @2x，输出到 `docs/screenshots/`）。

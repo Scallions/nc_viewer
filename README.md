@@ -2,6 +2,8 @@
 
 现代化的 NetCDF 文件可视化浏览器。Tauri 2 桌面壳 + React + TypeScript 前端，免原生编译依赖。
 
+![切片视图](docs/screenshots/slice.png)
+
 ## 功能
 
 - **浏览**：变量树 + 搜索、维度徽标、属性检查器（变量/全局属性）、状态栏
@@ -11,6 +13,21 @@
 - **3D**：Three.js 正交切片 / 等值面（marching cubes），轨道旋转
 - **探针**：悬停取值（切片/地图）
 - **导出**：CSV 切片/剖面、PNG 热力图、元数据 JSON
+
+### 地图投影
+
+14 种投影覆盖圆柱/伪圆柱、方位、圆锥三族，中心经纬度、缩放、裁剪角与标准纬线均可调，
+可一键按数据范围自动适配，极区数据会自动选用合适的方位投影。
+
+| 等距圆柱 | 正交地球 |
+| --- | --- |
+| ![地图视图](docs/screenshots/map.png) | ![球面投影](docs/screenshots/map-globe.png) |
+
+### 剖面与三维
+
+| 垂直剖面 | 3D 体视 |
+| --- | --- |
+| ![剖面视图](docs/screenshots/profile.png) | ![3D 视图](docs/screenshots/volume.png) |
 
 ## 界面设计
 
@@ -81,9 +98,20 @@ $env:NC_BENCH_BIG = "D:\data\huge.nc"; npm run bench:backend
 ```sh
 python test-data/gen.py      # sample3.nc（NetCDF-3）+ sample4.nc（NetCDF-4/分组）
 python test-data/gen_vol.py  # sample_vol.nc（time/depth/lat/lon 4D，用于地图/剖面/3D）
+python test-data/gen_demo.py # demo.nc（全球海温场，用于 README 截图与演示）
 ```
 
 直接把 `.nc` 文件拖拽到窗口即可打开。
+
+## 效果图
+
+`docs/screenshots/` 下的截图由 `tools/shot.py` 自动生成，使用 `test-data/demo.nc`
+作为示例数据，视口固定为 1440×900 @2x 以保证可复现：
+
+```sh
+npm run dev                              # 先启动开发服务器
+python tools/shot.py                     # 需要 playwright（pip install playwright && playwright install chromium）
+```
 
 ## 持续集成与发布
 
