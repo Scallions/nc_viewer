@@ -84,4 +84,4 @@ Tauri 2 + React 19 + Vite + TypeScript 桌面应用，用于浏览 NetCDF-3 / Ne
 
 - `README.md`（English）/ `README.zh.md`（简体中文）— 项目文档（功能/格式/开发/测试/技术说明），改功能后同步更新**两份**（顶部互链语言切换）
 - `src-tauri/tauri.conf.json` / `src-tauri/capabilities/default.json` — 桌面配置与权限
-- `test-data/gen.py`, `test-data/gen_vol.py`, `test-data/gen_demo.py` — 样本生成脚本（校验用脚本已删，改用浏览器拖拽打开验证）；`tools/shot.py` — README 截图脚本（需 playwright，先 `npm run dev`，固定 1440×900 @2x，输出到 `docs/screenshots/`）；`tools/check_i18n.py` — 中英切换冒烟测试。
+- `test-data/gen.py`, `test-data/gen_vol.py`, `test-data/gen_demo.py` — 样本生成脚本（校验用脚本已删，改用浏览器拖拽打开验证）；`tools/shot.py` — README 截图脚本（需 playwright，先 `npm run dev`，固定 1440×900 @2x，输出到 `docs/screenshots/`）；`tools/check_i18n.py` — 中英切换冒烟测试；`tools/gen_icon.py` — 应用图标生成（cividis 热力图地球，写 `src-tauri/app-icon.svg` + `public/favicon.svg`，再 `npx tauri icon src-tauri/app-icon.svg`，删掉多生成的 `android/ios/64x64.png`）。

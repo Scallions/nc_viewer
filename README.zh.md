@@ -126,6 +126,16 @@ npm run dev                              # 先启动开发服务器
 python tools/shot.py                     # 需要 playwright（pip install playwright && playwright install chromium）
 ```
 
+## 应用图标
+
+图标（以 `cividis` 热力图绘制的地球）由 `tools/gen_icon.py` 生成，输出
+`src-tauri/app-icon.svg` 与 `public/favicon.svg`，再据此生成各平台图标：
+
+```sh
+python tools/gen_icon.py
+npx tauri icon src-tauri/app-icon.svg    # 之后删除生成的 icons/android、icons/ios、64x64.png
+```
+
 ## 持续集成与发布
 
 - **CI**（`.github/workflows/ci.yml`）：push / PR 到 `main` 时运行前端
