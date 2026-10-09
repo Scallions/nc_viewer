@@ -15,6 +15,8 @@ Tauri 2 + React 19 + Vite + TypeScript 桌面应用，用于浏览 NetCDF-3 / Ne
 - `npm run build` — `tsc -b && vite build`，输出 `dist/` (Tauri `frontendDist`)
 - `npm run lint` — `oxlint`
 - `npm run preview` — `vite preview`
+- `npm run bench` — 前端性能基准（vitest，纯 Node，无界面）
+- `npm run bench:backend` — 后端性能基准（`cargo run --release --example bench`）
 - `npx tauri dev` / `npx tauri build` — 桌面壳 (`beforeDevCommand: npm run dev`, `beforeBuildCommand: npm run build`)
 - 无测试脚本；手动校验见 `test-data/` (`gen.py` / `gen_vol.py` 生成 `sample3.nc` / `sample4.nc` / `sample_vol.nc`，浏览器拖拽打开验证)
 
@@ -34,6 +36,8 @@ Tauri 2 + React 19 + Vite + TypeScript 桌面应用，用于浏览 NetCDF-3 / Ne
 - `src/lib/colormap.ts` — 色标唯一源（`STOPS` + 256 级 LUT 缓存），勿在组件内重复定义。
 - `src/lib/uiTheme.ts` — Canvas/WebGL/ECharts 的界面配色适配（坐标轴、网格、提示框、剖面曲线与等值面），与 `index.css` 的浅色 UI tokens 保持一致；科学数据色标仍由 `colormap.ts` 管理。
 - `src-tauri/src/lib.rs` + `main.rs` — Tauri 入口，仅注册 `plugin-fs` / `plugin-dialog` (+ debug 下 `plugin-log`)。
+- `bench/core.bench.ts` + `vitest.config.ts` — 前端性能基准（纯 Node，`environment: node`，无浏览器）。`bench()` 辅助函数做 1 次预热 + 多次采样取中位数。`tsconfig.bench.json` 用 `moduleResolution: bundler` 以便无扩展名导入 `src/lib`。
+- `src-tauri/examples/bench.rs` — 后端性能基准（`cargo run --release --example bench`），覆盖 `nc_meta`/`nc_slice_2d`/`nc_profile`/`nc_volume`；大文件用例在 `NC_BENCH_BIG` 缺失时自动跳过。
 - `src-tauri/tauri.conf.json` — `frontendDist: ../dist`, `devUrl: http://localhost:5173`, 窗口 `NC Viewer 1400x900` (min 1000x650), `csp: null`。
 - `src-tauri/capabilities/default.json` — `core:default, dialog:default, fs:default`，无自定义 scope。
 - `vite.config.ts` — `react() + tailwindcss()`，`optimizeDeps.exclude: ['h5wasm']`，`COOP/COEP` 头 (h5wasm 线程需要)。

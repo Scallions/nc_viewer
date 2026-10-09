@@ -33,6 +33,40 @@ npx tauri dev      # 桌面调试
 npx tauri build    # 打包（MSI/NSIS，约 3-5MB）
 ```
 
+## 性能基准
+
+无需启动界面，纯命令行即可测关键路径：
+
+```sh
+npm run bench          # 前端：解析 / 切片 / 剖面 / 体数据 / 降采样 / 色标（vitest，纯 Node）
+npm run bench:backend  # 后端：nc_meta / nc_slice_2d / nc_profile / nc_volume（release 构建）
+```
+
+两者均输出每次调用的中位数 / 最小 / 最大耗时。后端大文件用例默认读取开发用的
+`gps_pwv/data/pwv.nc`（1.37GB），可通过环境变量指向其他文件；文件不存在时自动跳过：
+
+```sh
+$env:NC_BENCH_BIG = "D:\data\huge.nc"; npm run bench:backend
+```
+
+参考数据（本机）：
+
+| 场景 | 中位耗时 |
+| --- | --- |
+| 解析 sample3.nc (NetCDF-3) | 0.04 ms |
+| 解析 sample_vol.nc (4D, NetCDF-4) | ~2 ms |
+| 切片 3D 平面 | 0.02–0.2 ms |
+| 剖面 / 体数据 | 0.1–0.4 ms |
+| 降采样 2000×2000 → 600 | ~8 ms |
+| 后端 1.37GB 文件元数据 | ~0.17 ms |
+| 后端 1.37GB 单帧切片 | ~0.15 ms |
+| 后端 1.37GB 全时间轴剖面 | ~200 ms |
+
+## 大文件
+
+超过 64MB 的本地文件（仅桌面版）自动切换到 Rust 后端按需读取：只读文件头取元数据，
+切片时按 hyperslab 从磁盘读取，不把整个文件载入内存。状态栏会显示「流式读取」标记。
+
 ## 测试数据
 
 `test-data/` 下有生成脚本与示例文件：
