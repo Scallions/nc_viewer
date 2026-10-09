@@ -67,6 +67,13 @@ $env:NC_BENCH_BIG = "D:\data\huge.nc"; npm run bench:backend
 超过 64MB 的本地文件（仅桌面版）自动切换到 Rust 后端按需读取：只读文件头取元数据，
 切片时按 hyperslab 从磁盘读取，不把整个文件载入内存。状态栏会显示「流式读取」标记。
 
+## 下载安装
+
+从 [Releases](https://github.com/Scallions/nc_viewer/releases) 下载最新 Windows 安装包：
+
+- `NC Viewer_x.y.z_x64-setup.exe` — NSIS 安装程序（推荐）
+- `NC Viewer_x.y.z_x64_en-US.msi` — MSI 安装包
+
 ## 测试数据
 
 `test-data/` 下有生成脚本与示例文件：
@@ -77,6 +84,20 @@ python test-data/gen_vol.py  # sample_vol.nc（time/depth/lat/lon 4D，用于地
 ```
 
 直接把 `.nc` 文件拖拽到窗口即可打开。
+
+## 持续集成与发布
+
+- **CI**（`.github/workflows/ci.yml`）：push / PR 到 `main` 时运行前端
+  `build` / `lint` / `bench` 与后端 `rustfmt --check` / `clippy -D warnings` /
+  `cargo test`。
+- **发布**（`.github/workflows/release.yml`）：推送 `v*` 标签即在 Windows 构建
+  Tauri 安装包（NSIS + MSI），自动创建 GitHub Release 并附加安装包与自动生成的
+  release notes。带连字符的标签（如 `v0.2.0-beta.1`）标记为预发布。
+
+```sh
+git tag -a v0.1.0 -m "NC Viewer v0.1.0"
+git push origin v0.1.0
+```
 
 ## 技术说明
 

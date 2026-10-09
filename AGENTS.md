@@ -7,7 +7,8 @@ Tauri 2 + React 19 + Vite + TypeScript 桌面应用，用于浏览 NetCDF-3 / Ne
 
 - 每完成一个任务就提交一次代码（commit），勿堆积多个功能一次提交。
 - 完成功能后同步更新本文档 (`AGENTS.md`) 与 `README.md` 中过时的架构/约定描述。
-- 提交前跑 `npm run build`（含 `tsc -b`），确保类型与构建通过。
+- 提交前跑 `npm run build`（含 `tsc -b`），确保类型与构建通过；改动 Rust 时另跑 `cargo fmt`、`cargo clippy -D warnings`、`cargo test`（CI 会强制这些检查）。
+- 行尾统一为 LF（`.gitattributes`），`.bat/.cmd/.ps1` 保持 CRLF。
 
 ## 命令
 
@@ -18,7 +19,14 @@ Tauri 2 + React 19 + Vite + TypeScript 桌面应用，用于浏览 NetCDF-3 / Ne
 - `npm run bench` — 前端性能基准（vitest，纯 Node，无界面）
 - `npm run bench:backend` — 后端性能基准（`cargo run --release --example bench`）
 - `npx tauri dev` / `npx tauri build` — 桌面壳 (`beforeDevCommand: npm run dev`, `beforeBuildCommand: npm run build`)
-- 无测试脚本；手动校验见 `test-data/` (`gen.py` / `gen_vol.py` 生成 `sample3.nc` / `sample4.nc` / `sample_vol.nc`，浏览器拖拽打开验证)
+- `cargo fmt` / `cargo clippy -D warnings` / `cargo test` — Rust 格式、lint、测试（`--manifest-path src-tauri/Cargo.toml`）
+- 无前端测试脚本；手动校验见 `test-data/` (`gen.py` / `gen_vol.py` 生成 `sample3.nc` / `sample4.nc` / `sample_vol.nc`，浏览器拖拽打开验证)
+
+## CI / 发布
+
+- `.github/workflows/ci.yml` — push/PR 到 `main`：前端 `build`/`lint`/`bench` + 后端 `fmt --check`/`clippy -D warnings`/`test`（Linux 跑后端，需 webkit2gtk 系统依赖）。
+- `.github/workflows/release.yml` — 推送 `v*` 标签：Windows 构建 NSIS+MSI，创建 GitHub Release 并附安装包与自动 release notes；带 `-` 的标签视为预发布。
+- 版本号需同步改 `src-tauri/tauri.conf.json`、`src-tauri/Cargo.toml`、`package.json`。
 
 ## 架构
 
