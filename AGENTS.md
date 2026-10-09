@@ -24,7 +24,7 @@ Tauri 2 + React 19 + Vite + TypeScript 桌面应用，用于浏览 NetCDF-3 / Ne
 
 - `src/App.tsx` — 唯一状态容器 + 三栏布局 (文件工具栏 / `VarTree` / 视口 / `Inspector` / status bar)。变量标题与统计位于视口上方；空白页的打开入口位于主视区，拖入文件显示覆盖提示。状态: `ds, selected, slice, fixed, playing, colormap/vmin/vmax, probe, viewMode, loading/error/dragging`。视口四模式：`slice` (`Heatmap`) / `map` (`MapView`) / `profile` (`ProfileView`) / `volume` (`VolumeView`)。
 - `src/components/Heatmap.tsx` — ECharts `heatmap` 切片渲染器，浅色主题，行主序 `[ny][nx]`，右侧预留独立色标空间。色标逻辑已抽到 `src/lib/colormap.ts`（`COLORMAPS` / `colormapColors()` / `colorFor()`，供 Heatmap/MapView/VolumeView/导出 PNG 共用）。
-- `src/components/MapView.tsx` — Canvas 地图投影（`d3-geo`：等距圆柱/墨卡托/正交/极射），逐像素双线性重采样 + `geoPath` 经纬网。正交投影的像素和探针按投影圆盘裁剪，球面轮廓由实际投影生成。输入为 lon×lat 平面（`getSlice2DAxes`）。
+- `src/components/MapView.tsx` — Canvas 地图投影（`d3-geo`：等距圆柱/墨卡托/正交/极射），逐像素双线性重采样 + `geoPath` 经纬网。逐像素反投影经往返校验剔除球面域外像素（`invertInDomain`），球面轮廓由实际投影生成。输入为 lon×lat 平面（`getSlice2DAxes`）。
 - `src/components/ProfileView.tsx` — ECharts 折线垂直剖面（`getProfile`），标题带固定点标签。
 - `src/components/VolumeView.tsx` — Three.js 体视（`three`）：`slices` 正交三平面 / `surface` 等值面 (`MarchingCubes`)，`OrbitControls` 旋转。相机按体尺寸和视口比例适配，缩放窗口保留用户的相对缩放/观察方向；等值面包围框对应 `[-1,1]`。输入为 `getVolume3D`（默认降采样 ≤96/边）。
 - `src/components/VarTree.tsx` — 左栏变量树，搜索 + 坐标变量过滤，数据变量/坐标分组。
@@ -64,7 +64,7 @@ Tauri 2 + React 19 + Vite + TypeScript 桌面应用，用于浏览 NetCDF-3 / Ne
 - `COOP/COEP` 仅配了 `server.headers`，preview/Tauri 出 wasm 问题先查头。
 - 前端解析器必须把整个文件读进 WASM 内存 — 数百 MB/GB 文件会卡死或爆堆。故大文件走 `netcdf-reader` 后端按需读 hyperslab；后端 `NcSliceInfoElem` 是 `Index(u64)` / `Slice{start,end,step}`（`end: u64::MAX` 表示到末尾），不是 `Range{start,count}`。`NcAttrValue` 变体是 `Bytes/Chars/Shorts/Ints/Floats/Doubles/UBytes/.../Strings`；`NcType` 是 `Byte/Char/Short/Int/Float/Double/UByte/...`；`NcFormat` 是 `Classic/Offset64/Cdf5/Nc4/Nc4Classic`。变量路径用相对路径（`ocean/salinity`，勿带前导 `/`）。
 - `test-data/gen.py` / `gen_vol.py` 需 `netCDF4+numpy`；`sample3.nc` (NETCDF3_64BIT) / `sample4.nc` (NETCDF4 + `/ocean` group) / `sample_vol.nc` (4D time/depth/lat/lon) 勿直接提交大文件改动。
-- `MapView` 非球投影（等距/墨卡托）画矩形边框；正交/极射用 `geoPath(proj, ctx)` 画实际球面轮廓与裁剪后的经纬网，勿按 Canvas 宽高手绘椭圆。正交投影 `invert()` 不能代替圆盘边界检查。
+- `MapView` 非球投影（等距/墨卡托）画矩形边框；正交/极射用 `geoPath(proj, ctx)` 画实际球面轮廓与裁剪后的经纬网，勿按 Canvas 宽高手绘椭圆。`fitExtent` 按球面轮廓适配，球面只占画布中间一块；`proj.invert()` 在整个画布上都有定义，球面外会返回 ±180° 以外、经 `normLon` 回绕后落回数据范围的伪经度，导致同一数据被水平重复绘制多份（画布越扁平份数越多）。故逐像素反投影必须做**往返校验**（`invert` 得点再正向 `proj()` 回原像素，误差 >0.5px 判为域外，`invertInDomain()`），勿只靠正交圆盘距离判断。
 - `VolumeView` 等值面经 `MarchingCubes(res=48)` 重采样，`isolation` 由 `(iso-min)/(max-min)` 钳制到 [0.01, 0.99]。
 
 ## 相关文档

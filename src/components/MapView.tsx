@@ -107,17 +107,25 @@ export default function MapView({ data, nx, ny, lons, lats, colormap, vmin, vmax
     const img = ctx.createImageData(canvas.width, canvas.height);
     const px = img.data;
     const invert = proj.invert!.bind(proj);
-    const [centerX, centerY] = proj.translate();
-    const globeRadius = proj.scale();
+    // `invert` is defined across the whole canvas for most projections: outside
+    // the sphere it returns longitudes beyond ±180 that wrap back onto the data
+    // range and repaint the field (two or more copies side by side). A genuine
+    // inverse point must project forward back onto the same pixel, so use that
+    // round-trip as a domain test for every projection.
+    const invertInDomain = (x: number, y: number): [number, number] | null => {
+      const ll = invert([x, y]);
+      if (!ll) return null;
+      const back = proj([ll[0], ll[1]]);
+      if (!back || Math.abs(back[0] - x) > 0.5 || Math.abs(back[1] - y) > 0.5) return null;
+      return ll;
+    };
     // precompute lon index helper: lonArr may wrap; build sorted copy
     const order = lonArr.map((v, i) => [v, i] as const).sort((a, b) => a[0] - b[0]);
     const sortedLon = order.map((o) => o[0]);
 
     for (let py = 0; py < canvas.height; py++) {
       for (let pxx = 0; pxx < canvas.width; pxx++) {
-        // Orthographic inversion is defined outside the visible disk too; mask it.
-        if (projId === 'orthographic' && Math.hypot(pxx - centerX, py - centerY) > globeRadius) continue;
-        const ll = invert([pxx, py]);
+        const ll = invertInDomain(pxx, py);
         const o = (py * canvas.width + pxx) * 4;
         if (!ll) {
           px[o + 3] = 0;
@@ -190,12 +198,11 @@ export default function MapView({ data, nx, ny, lons, lats, colormap, vmin, vmax
     else if (projId === 'stereographic') proj = geoStereographic().rotate([0, -90]).clipAngle(180 - 1e-3);
     else proj = geoEquirectangular();
     proj.fitExtent([[4, 4], [canvas.width - 4, canvas.height - 4]], { type: 'Sphere' } as never);
-    if (projId === 'orthographic') {
-      const [cx, cy] = proj.translate();
-      if (Math.hypot(px - cx, py - cy) > proj.scale()) return;
-    }
     const ll = proj.invert!([px, py]);
     if (!ll) return;
+    // reject out-of-domain inversions (see the round-trip test in the renderer)
+    const back = proj([ll[0], ll[1]]);
+    if (!back || Math.abs(back[0] - px) > 0.5 || Math.abs(back[1] - py) > 0.5) return;
     const lon = normLon(ll[0]);
     const lat = ll[1];
     // nearest sample
