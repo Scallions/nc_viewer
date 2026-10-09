@@ -5,21 +5,46 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
-    inputs:
-      tag:
-        description: 'Tag to release (e.g. v0.1.0). Leave empty to only build artifacts.'
-        required: false
 
 permissions:
   contents: write
 
 env:
   CARGO_TERM_COLOR: always
+  # let the AppImage tooling run without FUSE on CI runners
+  APPIMAGE_EXTRACT_AND_RUN: 1
 
 jobs:
-  build-windows:
-    name: Build Windows bundles
-    runs-on: windows-latest
+  build:
+    name: Build ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # one platform failing should not cancel the others
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows
+            os: windows-latest
+            args: ''
+            artifact: bundles-windows
+            glob: |
+              src-tauri/target/release/bundle/nsis/*.exe
+              src-tauri/target/release/bundle/msi/*.msi
+          - name: macOS
+            os: macos-latest
+            # universal binary so one dmg covers Intel and Apple Silicon
+            args: '--target universal-apple-darwin'
+            artifact: bundles-macos
+            glob: src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+          - name: Linux
+            # 22.04 keeps the produced binaries runnable on older distros
+            os: ubuntu-22.04
+            args: ''
+            artifact: bundles-linux
+            glob: |
+              src-tauri/target/release/bundle/deb/*.deb
+              src-tauri/target/release/bundle/rpm/*.rpm
+              src-tauri/target/release/bundle/appimage/*.AppImage
     steps:
       - uses: actions/checkout@v4
 
@@ -30,34 +55,51 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
+      - name: Add macOS universal targets
+        if: matrix.os == 'macos-latest'
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
 
+      - name: Install Linux system dependencies
+        if: matrix.os == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file \
+            libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+
       - run: npm ci
 
       # tauri build runs beforeBuildCommand (npm run build) and emits the
-      # NSIS installer plus the MSI package under src-tauri/target/release/bundle
+      # platform bundles under src-tauri/target/**/release/bundle
       - name: Build Tauri bundles
-        run: npx tauri build
+        run: npx tauri build ${{ matrix.args }}
 
-      - name: Collect artifacts
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force -Path artifacts | Out-Null
-          Copy-Item "src-tauri/target/release/bundle/nsis/*.exe" artifacts/
-          Copy-Item "src-tauri/target/release/bundle/msi/*.msi" artifacts/
-          Get-ChildItem artifacts
-
-      - name: Upload build artifacts
+      - name: Upload bundles
         uses: actions/upload-artifact@v4
         with:
-          name: windows-bundles
-          path: artifacts/*
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.glob }}
           if-no-files-found: error
 
+  release:
+    name: Publish release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all bundles
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: List bundles
+        run: ls -R artifacts
+
       - name: Publish GitHub release
-        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           files: artifacts/*

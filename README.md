@@ -86,10 +86,11 @@ $env:NC_BENCH_BIG = "D:\data\huge.nc"; npm run bench:backend
 
 ## 下载安装
 
-从 [Releases](https://github.com/Scallions/nc_viewer/releases) 下载最新 Windows 安装包：
+从 [Releases](https://github.com/Scallions/nc_viewer/releases) 下载对应平台的安装包：
 
-- `NC Viewer_x.y.z_x64-setup.exe` — NSIS 安装程序（推荐）
-- `NC Viewer_x.y.z_x64_en-US.msi` — MSI 安装包
+- **Windows**：`NC Viewer_x.y.z_x64-setup.exe`（NSIS，推荐）或 `NC Viewer_x.y.z_x64_en-US.msi`
+- **macOS**：`NC Viewer_x.y.z_universal.dmg`（通用二进制，同时支持 Intel 与 Apple Silicon）
+- **Linux**：`NC Viewer_x.y.z_amd64.deb`（Debian/Ubuntu）、`.rpm`（Fedora/RHEL）或 `.AppImage`（免安装）
 
 ## 测试数据
 
@@ -118,9 +119,10 @@ python tools/shot.py                     # 需要 playwright（pip install playw
 - **CI**（`.github/workflows/ci.yml`）：push / PR 到 `main` 时运行前端
   `build` / `lint` / `bench` 与后端 `rustfmt --check` / `clippy -D warnings` /
   `cargo test`。
-- **发布**（`.github/workflows/release.yml`）：推送 `v*` 标签即在 Windows 构建
-  Tauri 安装包（NSIS + MSI），自动创建 GitHub Release 并附加安装包与自动生成的
-  release notes。带连字符的标签（如 `v0.2.0-beta.1`）标记为预发布。
+- **发布**（`.github/workflows/release.yml`）：推送 `v*` 标签即在 Windows、macOS、
+  Linux 三平台并行构建 Tauri 安装包（Windows 为 NSIS + MSI，macOS 为通用 dmg，
+  Linux 为 deb + rpm + AppImage），统一创建 GitHub Release 并附加全部安装包与
+  自动生成的 release notes。带连字符的标签（如 `v0.2.0-beta.1`）标记为预发布。
 
 ```sh
 git tag -a v0.1.0 -m "NC Viewer v0.1.0"

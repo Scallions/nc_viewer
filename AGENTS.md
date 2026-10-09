@@ -25,7 +25,7 @@ Tauri 2 + React 19 + Vite + TypeScript 桌面应用，用于浏览 NetCDF-3 / Ne
 ## CI / 发布
 
 - `.github/workflows/ci.yml` — push/PR 到 `main`：前端 `build`/`lint`/`bench` + 后端 `fmt --check`/`clippy -D warnings`/`test`（Linux 跑后端，需 webkit2gtk 系统依赖）。
-- `.github/workflows/release.yml` — 推送 `v*` 标签：Windows 构建 NSIS+MSI，创建 GitHub Release 并附安装包与自动 release notes；带 `-` 的标签视为预发布。
+- `.github/workflows/release.yml` — 推送 `v*` 标签：Windows/macOS/Linux 三平台矩阵并行构建（NSIS+MSI / 通用 dmg / deb+rpm+AppImage），`release` job 汇总后创建 GitHub Release 并附安装包与自动 release notes；带 `-` 的标签视为预发布。macOS 用 `--target universal-apple-darwin`（需先 `rustup target add` 两个架构），Linux 用 `ubuntu-22.04` 并装 webkit2gtk 等依赖，AppImage 设 `APPIMAGE_EXTRACT_AND_RUN=1` 免 FUSE。
 - 版本号需同步改 `src-tauri/tauri.conf.json`、`src-tauri/Cargo.toml`、`package.json`。
 
 ## 架构
