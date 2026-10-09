@@ -4,6 +4,7 @@ import { MarchingCubes } from 'three/addons/objects/MarchingCubes.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { colorFor, type ColormapName } from '../lib/colormap';
 import type { Volume3D } from '../lib/ncTypes';
+import { PLOT_THEME } from '../lib/uiTheme';
 
 interface VolumeViewProps {
   volume: Volume3D;
@@ -89,14 +90,14 @@ export default function VolumeView({ volume, colormap, vmin, vmax, iso, mode }: 
       // bounding box
       const box = new THREE.LineSegments(
         new THREE.EdgesGeometry(new THREE.BoxGeometry(aspectXY, 1, 1)),
-        new THREE.LineBasicMaterial({ color: 0x475569 }),
+        new THREE.LineBasicMaterial({ color: PLOT_THEME.line }),
       );
       group.add(box);
     } else {
       // isosurface via marching cubes, resample volume to res^3
       const res = 48;
       const mat = new THREE.MeshStandardMaterial({
-        color: 0x818cf8, roughness: 0.35, metalness: 0.05,
+        color: PLOT_THEME.accent, roughness: 0.35, metalness: 0.05,
         transparent: true, opacity: 0.95,
       });
       const mc = new MarchingCubes(res, mat, false, false, 20000);
@@ -120,17 +121,30 @@ export default function VolumeView({ volume, colormap, vmin, vmax, iso, mode }: 
       mc.scale.set(1, 1, 1);
       group.add(mc as unknown as THREE.Object3D);
       const box = new THREE.LineSegments(
-        new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1)),
-        new THREE.LineBasicMaterial({ color: 0x475569 }),
+        new THREE.EdgesGeometry(new THREE.BoxGeometry(2, 2, 2)),
+        new THREE.LineBasicMaterial({ color: PLOT_THEME.line }),
       );
       group.add(box);
     }
+
+    // Fit the whole volume; MarchingCubes spans [-1, 1], slices span [-.5, .5].
+    const fitDistance = (width: number, height: number) => {
+      const radius = mode === 'surface' ? Math.sqrt(3) : Math.hypot(nx / Math.max(1, ny), 1, 1) / 2;
+      const halfFov = THREE.MathUtils.degToRad(camera.fov / 2);
+      const limitingFov = Math.atan(Math.tan(halfFov) * Math.min(1, width / height));
+      return radius / Math.sin(limitingFov) * 1.08;
+    };
+    let previousFit = fitDistance(w, h);
+    camera.position.setLength(previousFit);
 
     const ro = new ResizeObserver(() => {
       const rw = el.clientWidth || 400;
       const rh = el.clientHeight || 300;
       camera.aspect = rw / rh;
       camera.updateProjectionMatrix();
+      const nextFit = fitDistance(rw, rh);
+      camera.position.sub(controls.target).multiplyScalar(nextFit / previousFit).add(controls.target);
+      previousFit = nextFit;
       renderer.setSize(rw, rh);
     });
     ro.observe(el);

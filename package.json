@@ -17,6 +17,7 @@
     "d3-geo": "^3.1.1",
     "echarts": "^6.1.0",
     "h5wasm": "^0.10.3",
+    "lucide-react": "^1.53.0",
     "netcdfjs": "^4.0.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",

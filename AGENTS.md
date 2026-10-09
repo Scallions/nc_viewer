@@ -20,25 +20,28 @@ Tauri 2 + React 19 + Vite + TypeScript 桌面应用，用于浏览 NetCDF-3 / Ne
 
 ## 架构
 
-- `src/App.tsx` — 唯一状态容器 + 三栏布局 (top bar / `VarTree` / 视口 / `Inspector` / status bar)。状态: `ds, selected, slice, fixed, playing, colormap/vmin/vmax, probe, viewMode, loading/error`。视口四模式：`slice` (`Heatmap`) / `map` (`MapView`) / `profile` (`ProfileView`) / `volume` (`VolumeView`)。
-- `src/components/Heatmap.tsx` — ECharts `heatmap` 切片渲染器，`dark` 主题，行主序 `[ny][nx]`。色标逻辑已抽到 `src/lib/colormap.ts`（`COLORMAPS` / `colormapColors()` / `colorFor()`，供 Heatmap/MapView/VolumeView/导出 PNG 共用）。
-- `src/components/MapView.tsx` — Canvas 地图投影（`d3-geo`：等距圆柱/墨卡托/正交/极射），逐像素双线性重采样 + 经纬网。输入为 lon×lat 平面（`getSlice2DAxes`）。
+- `src/App.tsx` — 唯一状态容器 + 三栏布局 (文件工具栏 / `VarTree` / 视口 / `Inspector` / status bar)。变量标题与统计位于视口上方；空白页的打开入口位于主视区，拖入文件显示覆盖提示。状态: `ds, selected, slice, fixed, playing, colormap/vmin/vmax, probe, viewMode, loading/error/dragging`。视口四模式：`slice` (`Heatmap`) / `map` (`MapView`) / `profile` (`ProfileView`) / `volume` (`VolumeView`)。
+- `src/components/Heatmap.tsx` — ECharts `heatmap` 切片渲染器，浅色主题，行主序 `[ny][nx]`，右侧预留独立色标空间。色标逻辑已抽到 `src/lib/colormap.ts`（`COLORMAPS` / `colormapColors()` / `colorFor()`，供 Heatmap/MapView/VolumeView/导出 PNG 共用）。
+- `src/components/MapView.tsx` — Canvas 地图投影（`d3-geo`：等距圆柱/墨卡托/正交/极射），逐像素双线性重采样 + `geoPath` 经纬网。正交投影的像素和探针按投影圆盘裁剪，球面轮廓由实际投影生成。输入为 lon×lat 平面（`getSlice2DAxes`）。
 - `src/components/ProfileView.tsx` — ECharts 折线垂直剖面（`getProfile`），标题带固定点标签。
-- `src/components/VolumeView.tsx` — Three.js 体视（`three`）：`slices` 正交三平面 / `surface` 等值面 (`MarchingCubes`)，`OrbitControls` 旋转。输入为 `getVolume3D`（默认降采样 ≤96/边）。
+- `src/components/VolumeView.tsx` — Three.js 体视（`three`）：`slices` 正交三平面 / `surface` 等值面 (`MarchingCubes`)，`OrbitControls` 旋转。相机按体尺寸和视口比例适配，缩放窗口保留用户的相对缩放/观察方向；等值面包围框对应 `[-1,1]`。输入为 `getVolume3D`（默认降采样 ≤96/边）。
 - `src/components/VarTree.tsx` — 左栏变量树，搜索 + 坐标变量过滤，数据变量/坐标分组。
 - `src/components/Inspector.tsx` — 右栏属性面板 (`dtype/shape/dims/group` + `AttrTable`)。
 - `src/lib/ncTypes.ts` — 类型源 (`NcDataset/NcVariable/NcDimension/NcAttribute/Slice2D/Volume3D/GeoRole`)。改类型先改此文件。
 - `src/lib/ncService.ts` — 解析 + 切片 + 降采样，无 React 依赖。魔数分流 → `parseNetCdf3` (netcdfjs 同步) / `parseNetCdf4` (h5wasm 异步)。另有 `getSlice2DAxes`（任意两维平面）、`getProfile`（1D 剖面）、`getVolume3D`（[z][y][x] 体）、`guessGeoRole`/`geoRolesFor`/`findLonLatAxes`（经纬/垂直/时间识别）、`readCoordPublic`。
 - `src/lib/colormap.ts` — 色标唯一源（`STOPS` + 256 级 LUT 缓存），勿在组件内重复定义。
+- `src/lib/uiTheme.ts` — Canvas/WebGL/ECharts 的界面配色适配（坐标轴、网格、提示框、剖面曲线与等值面），与 `index.css` 的浅色 UI tokens 保持一致；科学数据色标仍由 `colormap.ts` 管理。
 - `src-tauri/src/lib.rs` + `main.rs` — Tauri 入口，仅注册 `plugin-fs` / `plugin-dialog` (+ debug 下 `plugin-log`)。
 - `src-tauri/tauri.conf.json` — `frontendDist: ../dist`, `devUrl: http://localhost:5173`, 窗口 `NC Viewer 1400x900` (min 1000x650), `csp: null`。
 - `src-tauri/capabilities/default.json` — `core:default, dialog:default, fs:default`，无自定义 scope。
 - `vite.config.ts` — `react() + tailwindcss()`，`optimizeDeps.exclude: ['h5wasm']`，`COOP/COEP` 头 (h5wasm 线程需要)。
-- `src/index.css` — 仅 `@import "tailwindcss"` + 暗色全高布局。样式用 Tailwind v4 + 硬编码暗色 (`#0b0d14/#11141d`)。
+- `src/index.css` — Tailwind v4 `@theme` 语义颜色（`canvas/surface/subtle/line/ink/muted/faint/accent/accent-soft`）+ 全高浅色布局。统一 `.btn/.field/.view-tab/.panel-heading`，图标用 `lucide-react`。中性灰白基底、炭灰主按钮、少量蓝色选中态；不使用紫色 UI 强调。
 
 ## 约定
 
 - TypeScript 严格：`noUnusedLocals/Parameters`，`erasableSyntaxOnly` (勿用枚举/命名空间等运行时语法)，`jsx: react-jsx`。提交前跑 `npm run build`。
+- UI 优先复用语义颜色与通用控件类，避免散落硬编码配色。保留键盘 `focus-visible` 和选中控件的 `aria-pressed`，输入需有可访问标签。≤1100px 收窄侧栏，≤800px 隐藏右侧检查器以保留视口空间；工具栏允许换行，尊重 `prefers-reduced-motion`。
+- 默认科学色标为 `cividis`（蓝黄），其余色标继续可选；不要把 UI 的蓝色选中态与数据色标耦合。
 - 文件打开双路径：`'__TAURI_INTERNALS__' in window` 判别。Tauri 用 `@tauri-apps/plugin-dialog open` + `@tauri-apps/plugin-fs readFile`；Web 用隐藏 `input[type=file]` + `drag/drop files[0]`。勿用旧 `__TAURI__`。
 - 切片规则 (`getSlice2D`/`getSlice2DAxes`)：默认后两维为 y,x（`getSlice2DAxes` 可指定任意两维）；其余维由 `fixed: Record<dim,idx>` 决定 (默认 0 并钳制)。播放 (`playing`) 以 `setInterval 300ms` 递增首个非平面维。注意：NC4 高维切片必须只固定前导维、后两维传空范围，否则统计坍缩为单值。
 - 大数组预览必经 `downsamplePlane(maxSide=600)` 块平均 (忽略 NaN)；体数据经 `getVolume3D(maxSide=96)` 降采样。
@@ -54,7 +57,7 @@ Tauri 2 + React 19 + Vite + TypeScript 桌面应用，用于浏览 NetCDF-3 / Ne
 - 维名优先级：`get_attached_scales(i)` → `get_dimension_labels()[i]` → 1D 用变量名 → `dim{i}`。
 - `COOP/COEP` 仅配了 `server.headers`，preview/Tauri 出 wasm 问题先查头。
 - `test-data/gen.py` / `gen_vol.py` 需 `netCDF4+numpy`；`sample3.nc` (NETCDF3_64BIT) / `sample4.nc` (NETCDF4 + `/ocean` group) / `sample_vol.nc` (4D time/depth/lat/lon) 勿直接提交大文件改动。
-- `MapView` 非球投影（等距/墨卡托）画矩形边框，仅正交/极射画椭圆球体轮廓。
+- `MapView` 非球投影（等距/墨卡托）画矩形边框；正交/极射用 `geoPath(proj, ctx)` 画实际球面轮廓与裁剪后的经纬网，勿按 Canvas 宽高手绘椭圆。正交投影 `invert()` 不能代替圆盘边界检查。
 - `VolumeView` 等值面经 `MarchingCubes(res=48)` 重采样，`isolation` 由 `(iso-min)/(max-min)` 钳制到 [0.01, 0.99]。
 
 ## 相关文档

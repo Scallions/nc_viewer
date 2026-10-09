@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  geoEquirectangular, geoMercator, geoOrthographic, geoStereographic,
+  geoEquirectangular, geoGraticule, geoMercator, geoOrthographic, geoPath, geoStereographic,
   type GeoProjection,
 } from 'd3-geo';
 import { colorFor, type ColormapName } from '../lib/colormap';
+import { PLOT_THEME } from '../lib/uiTheme';
 
 export const PROJECTIONS = [
   { id: 'equirectangular', label: '等距圆柱' },
@@ -106,12 +107,16 @@ export default function MapView({ data, nx, ny, lons, lats, colormap, vmin, vmax
     const img = ctx.createImageData(canvas.width, canvas.height);
     const px = img.data;
     const invert = proj.invert!.bind(proj);
+    const [centerX, centerY] = proj.translate();
+    const globeRadius = proj.scale();
     // precompute lon index helper: lonArr may wrap; build sorted copy
     const order = lonArr.map((v, i) => [v, i] as const).sort((a, b) => a[0] - b[0]);
     const sortedLon = order.map((o) => o[0]);
 
     for (let py = 0; py < canvas.height; py++) {
       for (let pxx = 0; pxx < canvas.width; pxx++) {
+        // Orthographic inversion is defined outside the visible disk too; mask it.
+        if (projId === 'orthographic' && Math.hypot(pxx - centerX, py - centerY) > globeRadius) continue;
         const ll = invert([pxx, py]);
         const o = (py * canvas.width + pxx) * 4;
         if (!ll) {
@@ -154,33 +159,20 @@ export default function MapView({ data, nx, ny, lons, lats, colormap, vmin, vmax
     ctx.putImageData(img, 0, 0);
 
     // graticule
-    ctx.strokeStyle = 'rgba(255,255,255,0.18)';
+    ctx.strokeStyle = 'rgba(98,107,120,0.3)';
     ctx.lineWidth = 1;
-    const pathFor = (coords: [number, number][]) => {
-      ctx.beginPath();
-      let started = false;
-      for (const c of coords) {
-        const p = proj(c);
-        if (!p) { started = false; continue; }
-        if (!started) { ctx.moveTo(p[0], p[1]); started = true; }
-        else ctx.lineTo(p[0], p[1]);
-      }
-      ctx.stroke();
-    };
-    for (let lon = -180; lon <= 180; lon += 30) {
-      pathFor(Array.from({ length: 91 }, (_, i) => [lon, -90 + i * 2] as [number, number]));
-    }
-    for (let lat = -60; lat <= 60; lat += 30) {
-      pathFor(Array.from({ length: 181 }, (_, i) => [-180 + i * 2, lat] as [number, number]));
-    }
+    const path = geoPath(proj, ctx);
+    ctx.beginPath();
+    path(geoGraticule().step([30, 30])());
+    ctx.stroke();
     // sphere outline only for globe-like projections
     if (projId === 'orthographic' || projId === 'stereographic') {
-      ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+      ctx.strokeStyle = PLOT_THEME.line;
       ctx.beginPath();
-      ctx.ellipse(canvas.width / 2, canvas.height / 2, canvas.width / 2 - 4, canvas.height / 2 - 4, 0, 0, Math.PI * 2);
+      path({ type: 'Sphere' });
       ctx.stroke();
     } else {
-      ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+      ctx.strokeStyle = PLOT_THEME.line;
       ctx.strokeRect(4.5, 4.5, canvas.width - 9, canvas.height - 9);
     }
   }, [data, nx, ny, lonArr, latArr, colormap, vmin, vmax, projId, size]);
@@ -198,6 +190,10 @@ export default function MapView({ data, nx, ny, lons, lats, colormap, vmin, vmax
     else if (projId === 'stereographic') proj = geoStereographic().rotate([0, -90]).clipAngle(180 - 1e-3);
     else proj = geoEquirectangular();
     proj.fitExtent([[4, 4], [canvas.width - 4, canvas.height - 4]], { type: 'Sphere' } as never);
+    if (projId === 'orthographic') {
+      const [cx, cy] = proj.translate();
+      if (Math.hypot(px - cx, py - cy) > proj.scale()) return;
+    }
     const ll = proj.invert!([px, py]);
     if (!ll) return;
     const lon = normLon(ll[0]);
@@ -218,12 +214,14 @@ export default function MapView({ data, nx, ny, lons, lats, colormap, vmin, vmax
 
   return (
     <div className="flex h-full w-full flex-col">
-      <div className="flex shrink-0 items-center gap-1 px-2 pb-1">
+      <div aria-label="地图投影" className="flex shrink-0 flex-wrap items-center gap-1 px-2 pb-3">
+        <span className="mr-2 text-[11px] text-muted">投影</span>
         {PROJECTIONS.map((p) => (
           <button
             key={p.id}
             onClick={() => setProjId(p.id)}
-            className={`rounded px-2 py-0.5 text-[11px] ${projId === p.id ? 'bg-indigo-500/30 text-indigo-100' : 'text-slate-400 hover:bg-white/5'}`}
+            aria-pressed={projId === p.id}
+            className="view-tab"
           >
             {p.label}
           </button>

@@ -1,4 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Box, ChartNoAxesColumn, ChevronRight, Database, FileCode2, FileImage,
+  FileSpreadsheet, FolderOpen, Grid2X2, Info, Layers, LoaderCircle,
+  Map, Pause, Play, SlidersHorizontal, Upload, X, type LucideIcon,
+} from 'lucide-react';
 import { open } from '@tauri-apps/plugin-dialog';
 import { readFile } from '@tauri-apps/plugin-fs';
 import Heatmap from './components/Heatmap';
@@ -25,23 +30,24 @@ interface Probe {
 
 type ViewMode = 'slice' | 'map' | 'profile' | 'volume';
 
-const VIEW_TABS: { id: ViewMode; label: string }[] = [
-  { id: 'slice', label: '切片' },
-  { id: 'map', label: '地图' },
-  { id: 'profile', label: '剖面' },
-  { id: 'volume', label: '3D' },
+const VIEW_TABS: { id: ViewMode; label: string; icon: LucideIcon }[] = [
+  { id: 'slice', label: '切片', icon: Grid2X2 },
+  { id: 'map', label: '地图', icon: Map },
+  { id: 'profile', label: '剖面', icon: ChartNoAxesColumn },
+  { id: 'volume', label: '3D', icon: Box },
 ];
 
 export default function App() {
   const [ds, setDs] = useState<NcDataset | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [dragging, setDragging] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   const [slice, setSlice] = useState<Slice2D | null>(null);
   const [sliceLoading, setSliceLoading] = useState(false);
   const [fixed, setFixed] = useState<Record<string, number>>({});
   const [playing, setPlaying] = useState(false);
-  const [colormap, setColormap] = useState<ColormapName>('viridis');
+  const [colormap, setColormap] = useState<ColormapName>('cividis');
   const [vmin, setVmin] = useState<string>('');
   const [vmax, setVmax] = useState<string>('');
   const [probe, setProbe] = useState<Probe | null>(null);
@@ -126,16 +132,34 @@ export default function App() {
   }, [loadBytes]);
 
   useEffect(() => {
+    let dragDepth = 0;
     const h = (e: DragEvent) => e.preventDefault();
+    const enter = (e: DragEvent) => {
+      e.preventDefault();
+      if (e.dataTransfer?.types.includes('Files')) {
+        dragDepth++;
+        setDragging(true);
+      }
+    };
+    const leave = () => {
+      dragDepth = Math.max(0, dragDepth - 1);
+      if (dragDepth === 0) setDragging(false);
+    };
     const drop = (e: DragEvent) => {
       e.preventDefault();
+      dragDepth = 0;
+      setDragging(false);
       const f = e.dataTransfer?.files?.[0];
       if (f) void onWebFile(f);
     };
     window.addEventListener('dragover', h);
+    window.addEventListener('dragenter', enter);
+    window.addEventListener('dragleave', leave);
     window.addEventListener('drop', drop);
     return () => {
       window.removeEventListener('dragover', h);
+      window.removeEventListener('dragenter', enter);
+      window.removeEventListener('dragleave', leave);
       window.removeEventListener('drop', drop);
     };
   }, [onWebFile]);
@@ -408,21 +432,20 @@ export default function App() {
   };
 
   return (
-    <div className="flex h-full flex-col bg-[#0b0d14] text-slate-200">
-      <header className="flex h-12 shrink-0 items-center gap-2 border-b border-white/10 bg-[#11141d] px-3">
-        <div className="flex items-center gap-2">
-          <span className="flex h-7 w-7 items-center justify-center rounded-md bg-indigo-500/20 text-[15px]">◈</span>
-          <span className="text-[14px] font-semibold tracking-wide">NC Viewer</span>
-          {ds && (
-            <span className="rounded bg-white/5 px-1.5 py-0.5 font-mono text-[11px] text-slate-400">{ds.format}</span>
-          )}
+    <div className="relative flex h-full flex-col bg-canvas text-ink">
+      <header className="flex h-14 shrink-0 items-center gap-3 border-b border-line bg-surface px-4">
+        <div className="flex shrink-0 items-center gap-2.5">
+          <Grid2X2 size={23} strokeWidth={1.8} className="text-ink" aria-hidden="true" />
+          <span className="text-[15px] font-semibold tracking-tight">NC Viewer</span>
+          <span className="header-subtitle ml-1 text-[11px] text-faint">NetCDF 数据工作台</span>
         </div>
-        <div className="mx-2 h-5 w-px bg-white/10" />
+        <div className="mx-1 h-5 w-px shrink-0 bg-line" />
         <button
           onClick={openFile}
-          className="rounded-md bg-indigo-500 px-3 py-1.5 text-[13px] font-medium text-white hover:bg-indigo-400"
+          disabled={loading}
+          className="btn btn-primary"
         >
-          打开文件
+          <FolderOpen size={15} aria-hidden="true" />打开文件
         </button>
         <input
           ref={fileInput}
@@ -435,72 +458,81 @@ export default function App() {
             e.target.value = '';
           }}
         />
-        {ds && (
-          <span className="truncate font-mono text-[12px] text-slate-400" title={ds.fileName}>{ds.fileName}</span>
-        )}
-        <div className="flex-1" />
-        {variable && activeStats && (
-          <span className="hidden font-mono text-[12px] text-slate-400 md:block">
-            {variable.shortName} [{variable.shape.join(' × ')}] · min {fmt(activeStats.min)} · max {fmt(activeStats.max)} · mean {fmt(activeStats.mean)}
-          </span>
-        )}
-        <button onClick={exportCsv} disabled={!activeStats && !(viewMode === 'profile' && profile)} className="rounded-md border border-white/10 px-2.5 py-1.5 text-[12px] text-slate-300 hover:bg-white/5 disabled:opacity-40">
-          导出 CSV
+        <div className="flex min-w-0 flex-1 items-center gap-2 text-[12px] text-muted">
+          {ds && <><ChevronRight size={14} className="shrink-0 text-faint" aria-hidden="true" /><span className="truncate" title={ds.fileName}>{ds.fileName}</span><span className="file-format shrink-0 rounded border border-line px-1.5 py-0.5 font-mono text-[10px] text-muted">{ds.format}</span></>}
+        </div>
+        <span className="export-label text-[11px] text-faint">导出</span>
+        <button onClick={exportCsv} disabled={!activeStats && !(viewMode === 'profile' && profile)} title="导出 CSV" aria-label="导出 CSV" className="btn">
+          <FileSpreadsheet size={14} aria-hidden="true" />CSV
         </button>
-        <button onClick={exportPng} disabled={!(viewMode === 'slice' || viewMode === 'map') || !activeStats} className="rounded-md border border-white/10 px-2.5 py-1.5 text-[12px] text-slate-300 hover:bg-white/5 disabled:opacity-40">
-          导出 PNG
+        <button onClick={exportPng} disabled={!(viewMode === 'slice' || viewMode === 'map') || !activeStats} title="导出 PNG" aria-label="导出 PNG" className="btn">
+          <FileImage size={14} aria-hidden="true" />PNG
         </button>
-        <button onClick={exportAttrs} disabled={!ds} className="rounded-md border border-white/10 px-2.5 py-1.5 text-[12px] text-slate-300 hover:bg-white/5 disabled:opacity-40">
-          元数据 JSON
+        <button onClick={exportAttrs} disabled={!ds} title="导出元数据 JSON" aria-label="导出元数据 JSON" className="btn">
+          <FileCode2 size={14} aria-hidden="true" />JSON
         </button>
       </header>
 
       {error && (
-        <div className="shrink-0 border-b border-red-500/30 bg-red-500/10 px-3 py-1.5 text-[12px] text-red-300">
-          {error} <button className="ml-2 underline" onClick={() => setError(null)}>关闭</button>
+        <div role="alert" className="flex shrink-0 items-center gap-3 border-b border-red-200 bg-red-50 px-4 py-2 text-[12px] text-red-700">
+          <Info size={15} className="shrink-0" aria-hidden="true" /><span className="min-w-0 flex-1 break-all">{error}</span><button aria-label="关闭错误提示" className="rounded p-1 hover:bg-red-100" onClick={() => setError(null)}><X size={15} /></button>
         </div>
       )}
 
       <div className="flex min-h-0 flex-1">
-        <aside className="w-64 shrink-0 border-r border-white/10 bg-[#0e1119]">
+        <aside aria-label="变量浏览器" className="sidebar-left flex shrink-0 flex-col border-r border-line bg-surface">
+          <div className="panel-heading"><Layers size={15} className="text-muted" aria-hidden="true" />变量浏览器</div>
           {ds ? (
             <VarTree ds={ds} selected={selected} onSelect={handleSelect} />
           ) : (
-            <EmptyHint loading={loading} onOpen={openFile} />
+            <div className="px-4 py-6 text-[12px] leading-6 text-muted">打开数据文件后，<br />在这里浏览和搜索变量。</div>
           )}
         </aside>
 
-        <main className="flex min-w-0 flex-1 flex-col bg-[#0b0d14]">
+        <main className="flex min-w-0 flex-1 flex-col bg-canvas">
           {variable && (slice || viewMode !== 'slice') ? (
             <>
+              <div className="flex shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-2 px-5 pb-3 pt-5">
+                <div className="flex min-w-0 items-center gap-2.5">
+                  <h1 className="truncate text-[17px] font-semibold tracking-tight" title={variable.name}>{variable.shortName}</h1>
+                  <span className="shrink-0 rounded border border-line bg-surface px-2 py-0.5 font-mono text-[10px] text-muted">{variable.shape.length}D · {variable.dtype}</span>
+                </div>
+                {activeStats && <div className="flex flex-wrap gap-4 text-[11px] text-muted">
+                  <span>最小 <span className="stat-value ml-1">{fmt(activeStats.min)}</span></span>
+                  <span>最大 <span className="stat-value ml-1">{fmt(activeStats.max)}</span></span>
+                  <span>均值 <span className="stat-value ml-1">{fmt(activeStats.mean)}</span></span>
+                </div>}
+              </div>
               {/* view tabs */}
-              <div className="flex shrink-0 items-center gap-1 border-b border-white/5 px-3 py-1.5">
+              <div aria-label="可视化模式" className="flex shrink-0 flex-wrap items-center gap-1 border-b border-line px-4 pb-2">
                 {VIEW_TABS.map((t) => {
                   const dis = tabDisabled(t.id);
+                  const Icon = t.icon;
                   return (
                     <button
                       key={t.id}
                       disabled={dis}
+                      aria-pressed={viewMode === t.id}
                       onClick={() => setViewMode(t.id)}
                       title={dis ? '当前变量不支持该视图' : t.label}
-                      className={`rounded-md px-3 py-1 text-[12px] ${viewMode === t.id ? 'bg-indigo-500/25 text-indigo-100' : 'text-slate-400 hover:bg-white/5'} disabled:opacity-35`}
+                      className="view-tab"
                     >
-                      {t.label}
+                      <Icon size={14} strokeWidth={1.7} aria-hidden="true" />{t.label}
                     </button>
                   );
                 })}
                 {viewMode === 'map' && lonLat && variable && (
-                  <span className="ml-2 font-mono text-[11px] text-slate-500">
+                  <span className="ml-2 font-mono text-[11px] text-muted">
                     {variable.dims[lonLat.lat]} × {variable.dims[lonLat.lon]}
                   </span>
                 )}
                 {viewMode === 'profile' && variable && profileAxis >= 0 && (
-                  <label className="ml-2 flex items-center gap-1 text-[12px] text-slate-400">
+                  <label className="ml-2 flex items-center gap-1 text-[12px] text-muted">
                     剖面轴
                     <select
                       value={profileAxis}
                       onChange={(e) => setProfileAxis(Number(e.target.value))}
-                      className="rounded border border-white/10 bg-black/40 px-1.5 py-0.5 text-slate-200"
+                      className="field max-w-40"
                     >
                       {variable.dims.map((d, i) => (
                         <option key={d + i} value={i}>{d} ({variable.shape[i]}){roles[i] ? ` · ${roles[i]}` : ''}</option>
@@ -509,7 +541,7 @@ export default function App() {
                   </label>
                 )}
                 {viewMode === 'volume' && volume && (
-                  <span className="ml-2 font-mono text-[11px] text-slate-500">
+                  <span className="ml-2 font-mono text-[11px] text-muted">
                     {volume.zName} × {volume.yName} × {volume.xName} · {volume.nx}×{volume.ny}×{volume.nz}
                   </span>
                 )}
@@ -517,26 +549,27 @@ export default function App() {
 
               {/* dim sliders */}
               {sliderDims.length > 0 && (
-                <div className="shrink-0 space-y-1 border-b border-white/5 px-3 py-2">
+                <div className="shrink-0 space-y-2 border-b border-line bg-surface px-5 py-3">
                   {sliderDims.map((d) => (
                     <div key={d.name} className="flex items-center gap-2 text-[12px]">
-                      <span className="w-24 truncate font-mono text-slate-400" title={d.name}>{d.name}</span>
+                      <span className="w-24 truncate font-mono text-muted" title={d.name}>{d.name}</span>
                       <input
                         type="range"
+                        aria-label={`${d.name} 索引`}
                         min={0}
                         max={d.len - 1}
                         value={fixed[d.name] ?? 0}
                         onChange={(e) => setFixed((f) => ({ ...f, [d.name]: Number(e.target.value) }))}
-                        className="h-1 flex-1 accent-indigo-500"
+                        className="h-1 flex-1 accent-accent"
                       />
-                      <span className="w-14 text-right font-mono text-slate-300">{fixed[d.name] ?? 0} / {d.len - 1}</span>
+                      <span className="w-14 text-right font-mono text-ink">{fixed[d.name] ?? 0} / {d.len - 1}</span>
                     </div>
                   ))}
                 </div>
               )}
 
               {/* viewport */}
-              <div className="relative min-h-0 flex-1">
+              <div className="data-viewport relative min-h-0 flex-1">
                 {viewMode === 'slice' && preview && slice && (
                   <Heatmap
                     data={preview.data}
@@ -592,86 +625,87 @@ export default function App() {
                   <CenterNote text={viewLoading ? '体数据加载中…' : '需要 ≥3D 变量'} />
                 )}
                 {(sliceLoading || viewLoading) && (
-                  <div className="absolute right-3 top-2 rounded bg-black/60 px-2 py-1 text-[11px] text-slate-300">加载中…</div>
+                  <div role="status" className="absolute right-3 top-2 flex items-center gap-1.5 rounded border border-line bg-surface px-2 py-1 text-[11px] text-muted"><LoaderCircle size={12} className="animate-spin" aria-hidden="true" />加载中…</div>
                 )}
                 {probe && (viewMode === 'slice' || viewMode === 'map') && activeStats && (
-                  <div className="absolute bottom-2 left-3 rounded bg-black/70 px-2 py-1 font-mono text-[11px] text-emerald-300">
+                  <div className="pointer-events-none absolute bottom-2 left-3 rounded border border-line bg-surface/95 px-2 py-1 font-mono text-[11px] text-ink">
                     {activeStats.xName}={fmt(probe.x)} · {activeStats.yName}={fmt(probe.y)} · 值={fmt(probe.value)}
                   </div>
                 )}
               </div>
 
               {/* bottom control bar */}
-              <div className="flex shrink-0 flex-wrap items-center gap-2 border-t border-white/10 bg-[#11141d] px-3 py-2 text-[12px]">
+              <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-t border-line bg-surface px-4 py-3 text-[12px]">
                 {animDim ? (
                   <button
                     onClick={() => setPlaying((p) => !p)}
-                    className="rounded-md border border-white/10 px-2.5 py-1 text-slate-200 hover:bg-white/5"
+                    className="btn"
+                    aria-pressed={playing}
                   >
-                    {playing ? '⏸ 暂停' : '▶ 播放'} <span className="text-slate-500">(空格)</span>
+                    {playing ? <Pause size={13} aria-hidden="true" /> : <Play size={13} aria-hidden="true" />}{playing ? '暂停' : '播放'} <kbd className="rounded border border-line px-1 text-[10px] text-faint">空格</kbd>
                   </button>
                 ) : (
-                  <span className="text-slate-500">{variable.shape.length <= 2 ? '2D 变量 · 无时间维' : '无可动画维度'}</span>
+                  <span className="text-muted">{variable.shape.length <= 2 ? '2D 变量 · 无时间维' : '无可动画维度'}</span>
                 )}
-                <label className="flex items-center gap-1.5 text-slate-400">
+                <label className="flex items-center gap-1.5 text-muted">
                   色标
                   <select
                     value={colormap}
                     onChange={(e) => setColormap(e.target.value as ColormapName)}
-                    className="rounded border border-white/10 bg-black/40 px-1.5 py-1 text-slate-200"
+                    className="field"
                   >
                     {COLORMAPS.map((c) => <option key={c} value={c}>{c}</option>)}
                   </select>
                 </label>
-                <label className="flex items-center gap-1 text-slate-400">
+                <label className="flex items-center gap-1 text-muted">
                   min
                   <input
                     value={vmin}
                     onChange={(e) => setVmin(e.target.value)}
                     placeholder={activeStats ? fmt(activeStats.min) : ''}
-                    className="w-20 rounded border border-white/10 bg-black/40 px-1.5 py-1 font-mono text-slate-200"
+                    className="field w-20 font-mono"
                   />
                 </label>
-                <label className="flex items-center gap-1 text-slate-400">
+                <label className="flex items-center gap-1 text-muted">
                   max
                   <input
                     value={vmax}
                     onChange={(e) => setVmax(e.target.value)}
                     placeholder={activeStats ? fmt(activeStats.max) : ''}
-                    className="w-20 rounded border border-white/10 bg-black/40 px-1.5 py-1 font-mono text-slate-200"
+                    className="field w-20 font-mono"
                   />
                 </label>
                 {(vmin !== '' || vmax !== '') && (
-                  <button onClick={() => { setVmin(''); setVmax(''); }} className="text-slate-500 hover:text-slate-300">重置</button>
+                  <button onClick={() => { setVmin(''); setVmax(''); }} className="text-muted hover:text-ink">重置</button>
                 )}
                 {viewMode === 'volume' && (
                   <>
-                    <label className="flex items-center gap-1.5 text-slate-400">
+                    <label className="flex items-center gap-1.5 text-muted">
                       模式
                       <select
                         value={volumeMode}
                         onChange={(e) => setVolumeMode(e.target.value as 'slices' | 'surface')}
-                        className="rounded border border-white/10 bg-black/40 px-1.5 py-1 text-slate-200"
+                        className="field"
                       >
                         <option value="slices">正交切片</option>
                         <option value="surface">等值面</option>
                       </select>
                     </label>
                     {volumeMode === 'surface' && volume && (
-                      <label className="flex items-center gap-1 text-slate-400">
+                      <label className="flex items-center gap-1 text-muted">
                         等值
                         <input
                           value={iso}
                           onChange={(e) => setIso(e.target.value)}
                           placeholder={fmt((volume.min + volume.max) / 2)}
-                          className="w-20 rounded border border-white/10 bg-black/40 px-1.5 py-1 font-mono text-slate-200"
+                          className="field w-20 font-mono"
                         />
                       </label>
                     )}
                   </>
                 )}
                 <div className="flex-1" />
-                <span className="font-mono text-slate-500">
+                <span className="font-mono text-muted">
                   {viewMode === 'slice' && preview && slice && (
                     <>{preview.nx} × {preview.ny}{preview.nx !== slice.nx ? ` (降采样自 ${slice.nx} × ${slice.ny})` : ''}</>
                   )}
@@ -688,26 +722,29 @@ export default function App() {
               </div>
             </>
           ) : (
-            <div className="flex flex-1 items-center justify-center text-[14px] text-slate-500">
-              {loading ? '解析中…' : ds ? '选择一个 ≥2D 变量开始可视化' : '拖拽 .nc 文件到窗口，或点击「打开文件」'}
+            <div className="flex min-h-0 flex-1 items-center justify-center overflow-y-auto p-6">
+              {ds ? <div className="text-center"><Grid2X2 size={28} className="mx-auto mb-4 text-faint" aria-hidden="true" /><p className="text-[14px] font-medium">选择一个二维或更高维变量</p><p className="mt-2 text-[12px] text-muted">从左侧列表选择变量，开始可视化。</p></div> : <EmptyHint loading={loading} onOpen={openFile} />}
             </div>
           )}
         </main>
 
-        <aside className="w-72 shrink-0 border-l border-white/10 bg-[#0e1119]">
+        <aside aria-label="属性检查器" className="sidebar-right flex shrink-0 flex-col border-l border-line bg-surface">
+          <div className="panel-heading"><SlidersHorizontal size={15} className="text-muted" aria-hidden="true" />属性检查器</div>
           {ds ? (
             <Inspector variable={variable} globalAttrs={ds.globalAttributes} />
           ) : (
-            <div className="p-3 text-[12px] text-slate-500">属性面板 · 打开文件后显示维度、类型与属性</div>
+            <div className="px-4 py-6 text-[12px] leading-6 text-muted">选择变量后查看<br />维度、数据类型与属性。<div className="mt-5 border-t border-line pt-4 text-[11px] text-faint">文件的全局属性也会显示在这里。</div></div>
           )}
         </aside>
       </div>
 
-      <footer className="flex h-7 shrink-0 items-center gap-3 border-t border-white/10 bg-[#11141d] px-3 font-mono text-[11px] text-slate-500">
-        <span>{ds ? `${ds.variables.length} 变量 · ${ds.dimensions.length} 维度` : '未打开文件'}</span>
+      <footer className="flex h-8 shrink-0 items-center gap-2 border-t border-line bg-surface px-4 text-[11px] text-muted">
+        <span className={`h-1.5 w-1.5 rounded-full ${ds ? 'bg-emerald-600' : 'bg-faint'}`} />
+        <span>{loading ? '正在解析文件…' : ds ? `${ds.variables.length} 变量 · ${ds.dimensions.length} 维度` : '就绪 · 等待打开文件'}</span>
         <div className="flex-1" />
-        <span>{isTauri ? 'Tauri 桌面' : 'Web 预览'}</span>
+        <Database size={12} className="text-faint" aria-hidden="true" /><span>{isTauri ? '桌面版' : 'Web 预览'}</span>
       </footer>
+      {dragging && <div className="pointer-events-none absolute inset-2 z-50 flex items-center justify-center rounded-xl border-2 border-dashed border-accent bg-accent-soft/95"><div className="text-center"><Upload size={32} className="mx-auto mb-3 text-accent" aria-hidden="true" /><p className="text-[18px] font-semibold text-accent">松开以打开文件</p><p className="mt-2 text-[12px] text-muted">NetCDF-3 / NetCDF-4 / HDF5</p></div></div>}
     </div>
   );
 }
@@ -728,19 +765,25 @@ function fmt(v: number): string {
 
 function CenterNote({ text }: { text: string }) {
   return (
-    <div className="flex h-full items-center justify-center text-[13px] text-slate-500">{text}</div>
+    <div className="flex h-full items-center justify-center text-[13px] text-muted">{text}</div>
   );
 }
 
 function EmptyHint({ loading, onOpen }: { loading: boolean; onOpen: () => void }) {
   return (
-    <div className="flex h-full flex-col items-center justify-center gap-3 p-4 text-center">
-      <div className="text-3xl">◈</div>
-      <div className="text-[13px] text-slate-400">{loading ? '解析中…' : '尚未打开文件'}</div>
-      <button onClick={onOpen} className="rounded-md border border-white/10 px-3 py-1.5 text-[13px] text-slate-200 hover:bg-white/5">
-        选择 .nc 文件
+    <div className="welcome-card text-center">
+      <div className="mx-auto mb-6 flex h-14 w-14 items-center justify-center rounded-xl border border-line bg-canvas">
+        {loading ? <LoaderCircle size={25} className="animate-spin text-muted" aria-hidden="true" /> : <FolderOpen size={25} strokeWidth={1.5} className="text-muted" aria-hidden="true" />}
+      </div>
+      <h1 className="text-[22px] font-semibold tracking-tight">{loading ? '正在读取数据' : '从一个数据文件开始'}</h1>
+      <p className="mt-3 text-[13px] leading-6 text-muted">{loading ? '文件解析完成后，即可浏览变量与切片。' : '拖拽文件到这里，探索变量、切片与空间分布。'}</p>
+      <button onClick={onOpen} disabled={loading} className="btn btn-primary mt-6 px-5 py-2.5">
+        <FolderOpen size={15} aria-hidden="true" />选择文件
       </button>
-      <div className="text-[11px] leading-relaxed text-slate-600">支持 NetCDF-3 / NetCDF-4<br />也可直接拖拽到窗口</div>
+      <div className="mt-5 text-[11px] text-faint">支持 NetCDF-3、NetCDF-4 与 HDF5</div>
+      <div className="mt-7 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 border-t border-line pt-5 text-[11px] text-muted">
+        <span className="flex items-center gap-1.5"><Grid2X2 size={13} aria-hidden="true" />二维切片</span><span className="flex items-center gap-1.5"><Map size={13} aria-hidden="true" />地图投影</span><span className="flex items-center gap-1.5"><Box size={13} aria-hidden="true" />三维预览</span>
+      </div>
     </div>
   );
 }

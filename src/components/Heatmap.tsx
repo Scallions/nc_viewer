@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import * as echarts from 'echarts';
 import { colormapColors, type ColormapName } from '../lib/colormap';
+import { PLOT_THEME } from '../lib/uiTheme';
 
 export { COLORMAPS, type ColormapName } from '../lib/colormap';
 
@@ -28,7 +29,7 @@ export default function Heatmap({ data, nx, ny, xCoords, yCoords, xName, yName, 
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    const chart = echarts.init(el, 'dark');
+    const chart = echarts.init(el);
     chartRef.current = chart;
     const ro = new ResizeObserver(() => chart.resize());
     ro.observe(el);
@@ -75,31 +76,38 @@ export default function Heatmap({ data, nx, ny, xCoords, yCoords, xName, yName, 
     chart.setOption({
       animation: false,
       backgroundColor: 'transparent',
-      grid: { left: 56, right: 12, top: 12, bottom: 30 },
+      textStyle: { fontFamily: 'Segoe UI, Microsoft YaHei, sans-serif', color: PLOT_THEME.text },
+      grid: { left: 64, right: 88, top: 24, bottom: 48 },
       xAxis: {
         type: 'category',
         data: xs.map((x) => typeof x === 'number' ? +x.toFixed(4) : x),
         name: xName,
         nameLocation: 'middle',
         nameGap: 24,
-        axisLabel: { fontSize: 10, color: '#8b93a7' },
-        axisLine: { lineStyle: { color: '#2a2f3f' } },
+        nameTextStyle: { color: PLOT_THEME.text, fontSize: 11 },
+        axisLabel: { fontSize: 10, color: PLOT_THEME.text },
+        axisLine: { lineStyle: { color: PLOT_THEME.line } },
+        axisTick: { lineStyle: { color: PLOT_THEME.line } },
       },
       yAxis: {
         type: 'category',
         data: ys.map((y) => typeof y === 'number' ? +y.toFixed(4) : y),
         name: yName,
-        axisLabel: { fontSize: 10, color: '#8b93a7' },
-        axisLine: { lineStyle: { color: '#2a2f3f' } },
+        nameTextStyle: { color: PLOT_THEME.text, fontSize: 11 },
+        axisLabel: { fontSize: 10, color: PLOT_THEME.text },
+        axisLine: { lineStyle: { color: PLOT_THEME.line } },
+        axisTick: { lineStyle: { color: PLOT_THEME.line } },
       },
       visualMap: {
         min, max,
         calculable: true,
         orient: 'vertical',
-        right: 0,
+        right: 6,
         top: 'middle',
         inRange: { color: colormapColors(colormap) },
-        textStyle: { color: '#8b93a7', fontSize: 10 },
+        itemWidth: 12,
+        itemHeight: 140,
+        textStyle: { color: PLOT_THEME.text, fontSize: 10 },
       },
       series: [{
         type: 'heatmap',
@@ -108,6 +116,7 @@ export default function Heatmap({ data, nx, ny, xCoords, yCoords, xName, yName, 
         emphasis: { disabled: true },
       }],
       tooltip: {
+        ...PLOT_THEME.tooltip,
         trigger: 'item',
         formatter: (p: unknown) => {
           const pp = p as { data?: [number, number, number] };
