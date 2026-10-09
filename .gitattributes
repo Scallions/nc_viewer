@@ -1,0 +1,14 @@
+# Normalize line endings so builds and formatters behave the same on every OS.
+* text=auto eol=lf
+
+# Windows-only files keep CRLF.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Binary assets must never be converted.
+*.png binary
+*.ico binary
+*.icns binary
+*.nc binary
+*.woff2 binary

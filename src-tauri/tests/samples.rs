@@ -8,10 +8,19 @@ fn dump(path: &str) {
             let mut stack: Vec<(&netcdf_reader::NcGroup, String)> = vec![(root, "/".into())];
             while let Some((g, prefix)) = stack.pop() {
                 for v in &g.variables {
-                    println!("   {prefix}{} shape={:?} dtype={:?}", v.name(), v.shape(), v.dtype());
+                    println!(
+                        "   {prefix}{} shape={:?} dtype={:?}",
+                        v.name(),
+                        v.shape(),
+                        v.dtype()
+                    );
                 }
                 for sg in &g.groups {
-                    let p = if prefix == "/" { format!("/{}", sg.name) } else { format!("{prefix}/{}", sg.name) };
+                    let p = if prefix == "/" {
+                        format!("/{}", sg.name)
+                    } else {
+                        format!("{prefix}/{}", sg.name)
+                    };
                     stack.push((sg, p));
                 }
             }

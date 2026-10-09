@@ -69,7 +69,10 @@ fn attr_to_json(name: &str, value: &NcAttrValue) -> BackendAttr {
         NcAttrValue::Chars(s) => ("string".to_string(), serde_json::Value::String(s.clone())),
         NcAttrValue::Strings(ss) => {
             if ss.len() == 1 {
-                ("string".to_string(), serde_json::Value::String(ss[0].clone()))
+                (
+                    "string".to_string(),
+                    serde_json::Value::String(ss[0].clone()),
+                )
             } else {
                 ("string".to_string(), serde_json::json!(ss))
             }
@@ -91,7 +94,11 @@ fn attr_to_json(name: &str, value: &NcAttrValue) -> BackendAttr {
         NcAttrValue::Floats(a) => ("float32".to_string(), serde_json::json!(a)),
         NcAttrValue::Doubles(a) => ("float64".to_string(), serde_json::json!(a)),
     };
-    BackendAttr { name: name.to_string(), dtype, value: json }
+    BackendAttr {
+        name: name.to_string(),
+        dtype,
+        value: json,
+    }
 }
 
 fn dtype_str(t: &NcType) -> String {
@@ -119,7 +126,11 @@ fn collect_vars(group: &NcGroup, prefix: &str, out: &mut Vec<(String, netcdf_rea
         out.push((prefix.to_string(), v.clone()));
     }
     for g in &group.groups {
-        let p = if prefix == "/" { format!("/{}", g.name) } else { format!("{prefix}/{}", g.name) };
+        let p = if prefix == "/" {
+            format!("/{}", g.name)
+        } else {
+            format!("{prefix}/{}", g.name)
+        };
         collect_vars(g, &p, out);
     }
 }
@@ -149,15 +160,26 @@ pub fn nc_meta(path: String) -> Result<BackendMeta, String> {
         let dim_names: Vec<String> = v.dimensions().iter().map(|d| d.name.clone()).collect();
         for (dn, sz) in dim_names.iter().zip(shape.iter()) {
             let key = format!("{dn}:{sz}");
-            if !seen.contains_key(&key) {
-                seen.insert(key, *sz);
-                dims.push(BackendDim { name: dn.clone(), size: *sz });
+            if let std::collections::hash_map::Entry::Vacant(e) = seen.entry(key) {
+                e.insert(*sz);
+                dims.push(BackendDim {
+                    name: dn.clone(),
+                    size: *sz,
+                });
             }
         }
-        let full = if group == "/" { format!("/{}", v.name()) } else { format!("{group}/{}", v.name()) };
+        let full = if group == "/" {
+            format!("/{}", v.name())
+        } else {
+            format!("{group}/{}", v.name())
+        };
         let short = v.name().to_string();
         let is_coord = v.is_coordinate_variable();
-        let attrs = v.attributes().iter().map(|a| attr_to_json(&a.name, &a.value)).collect();
+        let attrs = v
+            .attributes()
+            .iter()
+            .map(|a| attr_to_json(&a.name, &a.value))
+            .collect();
         variables.push(BackendVar {
             name: full,
             short_name: short,
@@ -185,12 +207,19 @@ pub fn nc_meta(path: String) -> Result<BackendMeta, String> {
     }
     .to_string();
 
-    Ok(BackendMeta { format, dimensions: dims, variables, global_attributes })
+    Ok(BackendMeta {
+        format,
+        dimensions: dims,
+        variables,
+        global_attributes,
+    })
 }
 
 fn read_coord_f64(file: &NcFile, dim_name: &str, len: usize) -> Option<Vec<f64>> {
     let path = resolve_coord_path(file, dim_name)?;
-    let arr = file.read_variable_slice_as_f64(&path, &NcSliceInfo::all(1)).ok()?;
+    let arr = file
+        .read_variable_slice_as_f64(&path, &NcSliceInfo::all(1))
+        .ok()?;
     if arr.len() == len {
         Some(arr.iter().copied().collect())
     } else {
@@ -258,7 +287,9 @@ pub fn nc_slice_2d(
 ) -> Result<SliceResult, String> {
     let file = open_file(&path)?;
     let rel = rel_path(&var);
-    let v = file.variable(rel).map_err(|e| format!("variable {var}: {e}"))?;
+    let v = file
+        .variable(rel)
+        .map_err(|e| format!("variable {var}: {e}"))?;
     let shape = v.shape();
     let rank = shape.len();
     if rank < 2 || y_axis >= rank || x_axis >= rank || y_axis == x_axis {
@@ -275,12 +306,19 @@ pub fn nc_slice_2d(
     }
 
     let mut selections: Vec<NcSliceInfoElem> = Vec::with_capacity(rank);
-    for i in 0..rank {
+    for (i, &len) in shape.iter().enumerate() {
         if i == y_axis || i == x_axis {
-            selections.push(NcSliceInfoElem::Slice { start: 0, end: u64::MAX, step: 1 });
+            selections.push(NcSliceInfoElem::Slice {
+                start: 0,
+                end: u64::MAX,
+                step: 1,
+            });
         } else {
-            let len = shape[i];
-            let k = fixed.get(i).copied().unwrap_or(0).min(len.saturating_sub(1));
+            let k = fixed
+                .get(i)
+                .copied()
+                .unwrap_or(0)
+                .min(len.saturating_sub(1));
             selections.push(NcSliceInfoElem::Index(k));
         }
     }
@@ -306,12 +344,29 @@ pub fn nc_slice_2d(
     }
 
     let dim_names: Vec<String> = v.dimensions().iter().map(|d| d.name.clone()).collect();
-    let x_name = dim_names.get(x_axis).cloned().unwrap_or_else(|| format!("dim{x_axis}"));
-    let y_name = dim_names.get(y_axis).cloned().unwrap_or_else(|| format!("dim{y_axis}"));
+    let x_name = dim_names
+        .get(x_axis)
+        .cloned()
+        .unwrap_or_else(|| format!("dim{x_axis}"));
+    let y_name = dim_names
+        .get(y_axis)
+        .cloned()
+        .unwrap_or_else(|| format!("dim{y_axis}"));
     let x_coords = read_coord_f64(&file, &x_name, nx);
     let y_coords = read_coord_f64(&file, &y_name, ny);
     let (min, max, mean) = stats(&data);
-    Ok(SliceResult { data, nx, ny, x_coords, y_coords, x_name, y_name, min, max, mean })
+    Ok(SliceResult {
+        data,
+        nx,
+        ny,
+        x_coords,
+        y_coords,
+        x_name,
+        y_name,
+        min,
+        max,
+        mean,
+    })
 }
 
 /// Read a 1D coordinate variable (for axes / profiles).
@@ -343,19 +398,28 @@ pub fn nc_profile(
 ) -> Result<ProfileResult, String> {
     let file = open_file(&path)?;
     let rel = rel_path(&var);
-    let v = file.variable(rel).map_err(|e| format!("variable {var}: {e}"))?;
+    let v = file
+        .variable(rel)
+        .map_err(|e| format!("variable {var}: {e}"))?;
     let shape = v.shape();
     let rank = shape.len();
     if axis >= rank {
         return Err("axis out of range".to_string());
     }
     let mut selections: Vec<NcSliceInfoElem> = Vec::with_capacity(rank);
-    for i in 0..rank {
+    for (i, &len) in shape.iter().enumerate() {
         if i == axis {
-            selections.push(NcSliceInfoElem::Slice { start: 0, end: u64::MAX, step: 1 });
+            selections.push(NcSliceInfoElem::Slice {
+                start: 0,
+                end: u64::MAX,
+                step: 1,
+            });
         } else {
-            let len = shape[i];
-            let k = fixed.get(i).copied().unwrap_or(0).min(len.saturating_sub(1));
+            let k = fixed
+                .get(i)
+                .copied()
+                .unwrap_or(0)
+                .min(len.saturating_sub(1));
             selections.push(NcSliceInfoElem::Index(k));
         }
     }
@@ -364,10 +428,17 @@ pub fn nc_profile(
         .map_err(|e| format!("profile failed: {e}"))?;
     let values: Vec<f64> = arr.iter().copied().collect();
     let dim_names: Vec<String> = v.dimensions().iter().map(|d| d.name.clone()).collect();
-    let coord_name = dim_names.get(axis).cloned().unwrap_or_else(|| format!("dim{axis}"));
+    let coord_name = dim_names
+        .get(axis)
+        .cloned()
+        .unwrap_or_else(|| format!("dim{axis}"));
     let coords = read_coord_f64(&file, &coord_name, values.len())
         .unwrap_or_else(|| (0..values.len()).map(|i| i as f64).collect());
-    Ok(ProfileResult { coords, values, coord_name })
+    Ok(ProfileResult {
+        coords,
+        values,
+        coord_name,
+    })
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -407,7 +478,9 @@ pub fn nc_volume(
 ) -> Result<VolumeResult, String> {
     let file = open_file(&path)?;
     let rel = rel_path(&var);
-    let v = file.variable(rel).map_err(|e| format!("variable {var}: {e}"))?;
+    let v = file
+        .variable(rel)
+        .map_err(|e| format!("variable {var}: {e}"))?;
     let shape = v.shape();
     let rank = shape.len();
     if rank < 3 {
@@ -431,21 +504,36 @@ pub fn nc_volume(
     let sz = stride_for(shape[z_axis]);
     let sy = stride_for(shape[y_axis]);
     let sx = stride_for(shape[x_axis]);
-    let nz = ((shape[z_axis] + sz - 1) / sz) as usize;
-    let ny = ((shape[y_axis] + sy - 1) / sy) as usize;
-    let nx = ((shape[x_axis] + sx - 1) / sx) as usize;
+    let nz = shape[z_axis].div_ceil(sz) as usize;
+    let ny = shape[y_axis].div_ceil(sy) as usize;
+    let nx = shape[x_axis].div_ceil(sx) as usize;
 
     let mut selections: Vec<NcSliceInfoElem> = Vec::with_capacity(rank);
-    for i in 0..rank {
+    for (i, &len) in shape.iter().enumerate() {
         if i == z_axis {
-            selections.push(NcSliceInfoElem::Slice { start: 0, end: u64::MAX, step: sz });
+            selections.push(NcSliceInfoElem::Slice {
+                start: 0,
+                end: u64::MAX,
+                step: sz,
+            });
         } else if i == y_axis {
-            selections.push(NcSliceInfoElem::Slice { start: 0, end: u64::MAX, step: sy });
+            selections.push(NcSliceInfoElem::Slice {
+                start: 0,
+                end: u64::MAX,
+                step: sy,
+            });
         } else if i == x_axis {
-            selections.push(NcSliceInfoElem::Slice { start: 0, end: u64::MAX, step: sx });
+            selections.push(NcSliceInfoElem::Slice {
+                start: 0,
+                end: u64::MAX,
+                step: sx,
+            });
         } else {
-            let len = shape[i];
-            let k = fixed.get(i).copied().unwrap_or(0).min(len.saturating_sub(1));
+            let k = fixed
+                .get(i)
+                .copied()
+                .unwrap_or(0)
+                .min(len.saturating_sub(1));
             selections.push(NcSliceInfoElem::Index(k));
         }
     }
@@ -458,7 +546,13 @@ pub fn nc_volume(
     let mut order = axes.to_vec();
     order.sort_unstable();
     let step_of = |a: usize| -> usize {
-        if a == z_axis { sz as usize } else if a == y_axis { sy as usize } else { sx as usize }
+        if a == z_axis {
+            sz as usize
+        } else if a == y_axis {
+            sy as usize
+        } else {
+            sx as usize
+        }
     };
     let out_len = |a: usize| -> usize {
         let step = step_of(a);
@@ -467,7 +561,13 @@ pub fn nc_volume(
     let sizes = [out_len(order[0]), out_len(order[1]), out_len(order[2])];
     let ostr = [sizes[1] * sizes[2], sizes[2], 1];
     let pos = |a: usize| -> usize {
-        if order[0] == a { 0 } else if order[1] == a { 1 } else { 2 }
+        if order[0] == a {
+            0
+        } else if order[1] == a {
+            1
+        } else {
+            2
+        }
     };
     let (pz, py, px) = (pos(z_axis), pos(y_axis), pos(x_axis));
     let mut data = vec![f64::NAN; nz * ny * nx];
@@ -485,9 +585,18 @@ pub fn nc_volume(
     }
 
     let dim_names: Vec<String> = v.dimensions().iter().map(|d| d.name.clone()).collect();
-    let z_name = dim_names.get(z_axis).cloned().unwrap_or_else(|| format!("dim{z_axis}"));
-    let y_name = dim_names.get(y_axis).cloned().unwrap_or_else(|| format!("dim{y_axis}"));
-    let x_name = dim_names.get(x_axis).cloned().unwrap_or_else(|| format!("dim{x_axis}"));
+    let z_name = dim_names
+        .get(z_axis)
+        .cloned()
+        .unwrap_or_else(|| format!("dim{z_axis}"));
+    let y_name = dim_names
+        .get(y_axis)
+        .cloned()
+        .unwrap_or_else(|| format!("dim{y_axis}"));
+    let x_name = dim_names
+        .get(x_axis)
+        .cloned()
+        .unwrap_or_else(|| format!("dim{x_axis}"));
     let z_coords = read_coord_f64(&file, &z_name, shape[z_axis] as usize)
         .map(|c| downsample_vec(&c, sz as usize));
     let y_coords = read_coord_f64(&file, &y_name, shape[y_axis] as usize)
@@ -496,10 +605,19 @@ pub fn nc_volume(
         .map(|c| downsample_vec(&c, sx as usize));
     let (min, max, mean) = stats(&data);
     Ok(VolumeResult {
-        data, nx, ny, nz,
-        x_coords, y_coords, z_coords,
-        x_name, y_name, z_name,
-        min, max, mean,
+        data,
+        nx,
+        ny,
+        nz,
+        x_coords,
+        y_coords,
+        z_coords,
+        x_name,
+        y_name,
+        z_name,
+        min,
+        max,
+        mean,
     })
 }
 

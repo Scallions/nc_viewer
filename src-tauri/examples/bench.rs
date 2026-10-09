@@ -24,7 +24,9 @@ fn big_path() -> Option<String> {
 
 fn sample(name: &str) -> String {
     // resolve relative to the crate dir so cwd doesn't matter
-    let p = Path::new(env!("CARGO_MANIFEST_DIR")).join("../test-data").join(name);
+    let p = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../test-data")
+        .join(name);
     p.to_string_lossy().into_owned()
 }
 
@@ -61,16 +63,28 @@ fn main() {
 
     println!("\nSlices (small samples):");
     bench("nc_slice_2d sample3 temperature", 20, || {
-        nc_backend::nc_slice_2d(sample("sample3.nc"), "temperature".into(), 1, 2, vec![0, 0, 0])
-            .expect("slice");
+        nc_backend::nc_slice_2d(
+            sample("sample3.nc"),
+            "temperature".into(),
+            1,
+            2,
+            vec![0, 0, 0],
+        )
+        .expect("slice");
     });
     bench("nc_slice_2d sample4 precip", 20, || {
         nc_backend::nc_slice_2d(sample("sample4.nc"), "precip".into(), 1, 2, vec![0, 0, 0])
             .expect("slice");
     });
     bench("nc_slice_2d sample4 ocean/salinity", 20, || {
-        nc_backend::nc_slice_2d(sample("sample4.nc"), "ocean/salinity".into(), 0, 1, vec![0, 0])
-            .expect("slice");
+        nc_backend::nc_slice_2d(
+            sample("sample4.nc"),
+            "ocean/salinity".into(),
+            0,
+            1,
+            vec![0, 0],
+        )
+        .expect("slice");
     });
 
     println!("\nProfiles & volumes (small samples):");
@@ -80,14 +94,22 @@ fn main() {
     });
     bench("nc_volume sample_vol temp", 10, || {
         nc_backend::nc_volume(
-            sample("sample_vol.nc"), "temp".into(), 1, 2, 3, vec![0, 0, 0, 0], 64,
+            sample("sample_vol.nc"),
+            "temp".into(),
+            1,
+            2,
+            3,
+            vec![0, 0, 0, 0],
+            64,
         )
         .expect("volume");
     });
 
     match big_path() {
         Some(p) => {
-            let size_mb = std::fs::metadata(&p).map(|m| m.len() / (1024 * 1024)).unwrap_or(0);
+            let size_mb = std::fs::metadata(&p)
+                .map(|m| m.len() / (1024 * 1024))
+                .unwrap_or(0);
             println!("\nLarge file ({size_mb} MB): {}", p);
 
             let meta = nc_backend::nc_meta(p.clone()).expect("big meta");
@@ -111,10 +133,8 @@ fn main() {
                     .expect("profile");
             });
             bench("nc_volume (downsampled <=64/edge)", 5, || {
-                nc_backend::nc_volume(
-                    p.clone(), big.name.clone(), 0, 1, 2, vec![0, 0, 0], 64,
-                )
-                .expect("volume");
+                nc_backend::nc_volume(p.clone(), big.name.clone(), 0, 1, 2, vec![0, 0, 0], 64)
+                    .expect("volume");
             });
 
             println!(
@@ -123,7 +143,9 @@ fn main() {
             );
         }
         None => {
-            println!("\nLarge-file benchmarks skipped (set NC_BENCH_BIG to a NetCDF path to enable).");
+            println!(
+                "\nLarge-file benchmarks skipped (set NC_BENCH_BIG to a NetCDF path to enable)."
+            );
         }
     }
 
