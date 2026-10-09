@@ -6,12 +6,18 @@ import {
   geoPath, geoStereographic, geoTransverseMercator, type GeoProjection,
 } from 'd3-geo';
 import { colorFor, type ColormapName } from '../lib/colormap';
+import { useI18n } from '../lib/i18nContext';
+import type { MessageKey } from '../lib/i18n';
 import { PLOT_THEME } from '../lib/uiTheme';
+
+/** Projection family, used to group the selector. */
+export type ProjectionGroup = 'cylindrical' | 'azimuthal' | 'conic';
 
 interface ProjectionDef {
   id: string;
-  label: string;
-  group: string;
+  /** message key for the display label (translated at render time) */
+  labelKey: MessageKey;
+  group: ProjectionGroup;
   make: () => GeoProjection;
   /** wrap the sphere in a clip circle (azimuthal family) */
   clip?: boolean;
@@ -23,25 +29,31 @@ interface ProjectionDef {
   tilt?: boolean;
 }
 
-export const PROJECTION_GROUPS = ['圆柱 / 伪圆柱', '方位', '圆锥'] as const;
+export const PROJECTION_GROUPS: ProjectionGroup[] = ['cylindrical', 'azimuthal', 'conic'];
+
+export const GROUP_LABEL_KEY: Record<ProjectionGroup, MessageKey> = {
+  cylindrical: 'map.group.cylindrical',
+  azimuthal: 'map.group.azimuthal',
+  conic: 'map.group.conic',
+};
 
 export const PROJECTIONS: ProjectionDef[] = [
-  { id: 'equirectangular', label: '等距圆柱', group: '圆柱 / 伪圆柱', make: geoEquirectangular },
-  { id: 'mercator', label: '墨卡托', group: '圆柱 / 伪圆柱', make: geoMercator },
-  { id: 'transverseMercator', label: '横轴墨卡托', group: '圆柱 / 伪圆柱', make: geoTransverseMercator, tilt: true },
-  { id: 'naturalEarth1', label: '自然地球', group: '圆柱 / 伪圆柱', make: geoNaturalEarth1 },
-  { id: 'equalEarth', label: '等积地球', group: '圆柱 / 伪圆柱', make: geoEqualEarth },
+  { id: 'equirectangular', labelKey: 'map.proj.equirectangular', group: 'cylindrical', make: geoEquirectangular },
+  { id: 'mercator', labelKey: 'map.proj.mercator', group: 'cylindrical', make: geoMercator },
+  { id: 'transverseMercator', labelKey: 'map.proj.transverseMercator', group: 'cylindrical', make: geoTransverseMercator, tilt: true },
+  { id: 'naturalEarth1', labelKey: 'map.proj.naturalEarth1', group: 'cylindrical', make: geoNaturalEarth1 },
+  { id: 'equalEarth', labelKey: 'map.proj.equalEarth', group: 'cylindrical', make: geoEqualEarth },
 
-  { id: 'orthographic', label: '正交地球', group: '方位', make: geoOrthographic, clip: true, globe: true, tilt: true },
-  { id: 'azimuthalEquidistant', label: '等距方位', group: '方位', make: geoAzimuthalEquidistant, clip: true, globe: true, tilt: true },
-  { id: 'azimuthalEqualArea', label: '等积方位', group: '方位', make: geoAzimuthalEqualArea, clip: true, globe: true, tilt: true },
-  { id: 'stereographic', label: '极射', group: '方位', make: geoStereographic, clip: true, globe: true, tilt: true },
-  { id: 'gnomonic', label: '球心', group: '方位', make: geoGnomonic, clip: true, globe: true, tilt: true },
+  { id: 'orthographic', labelKey: 'map.proj.orthographic', group: 'azimuthal', make: geoOrthographic, clip: true, globe: true, tilt: true },
+  { id: 'azimuthalEquidistant', labelKey: 'map.proj.azimuthalEquidistant', group: 'azimuthal', make: geoAzimuthalEquidistant, clip: true, globe: true, tilt: true },
+  { id: 'azimuthalEqualArea', labelKey: 'map.proj.azimuthalEqualArea', group: 'azimuthal', make: geoAzimuthalEqualArea, clip: true, globe: true, tilt: true },
+  { id: 'stereographic', labelKey: 'map.proj.stereographic', group: 'azimuthal', make: geoStereographic, clip: true, globe: true, tilt: true },
+  { id: 'gnomonic', labelKey: 'map.proj.gnomonic', group: 'azimuthal', make: geoGnomonic, clip: true, globe: true, tilt: true },
 
-  { id: 'albers', label: '阿尔伯斯等积', group: '圆锥', make: geoAlbers, parallels: true, globe: true },
-  { id: 'conicEqualArea', label: '圆锥等积', group: '圆锥', make: geoConicEqualArea, parallels: true, globe: true },
-  { id: 'conicConformal', label: '兰勃特等角', group: '圆锥', make: geoConicConformal, parallels: true, globe: true },
-  { id: 'conicEquidistant', label: '圆锥等距', group: '圆锥', make: geoConicEquidistant, parallels: true, globe: true },
+  { id: 'albers', labelKey: 'map.proj.albers', group: 'conic', make: geoAlbers, parallels: true, globe: true },
+  { id: 'conicEqualArea', labelKey: 'map.proj.conicEqualArea', group: 'conic', make: geoConicEqualArea, parallels: true, globe: true },
+  { id: 'conicConformal', labelKey: 'map.proj.conicConformal', group: 'conic', make: geoConicConformal, parallels: true, globe: true },
+  { id: 'conicEquidistant', labelKey: 'map.proj.conicEquidistant', group: 'conic', make: geoConicEquidistant, parallels: true, globe: true },
 ];
 export type ProjectionId = (typeof PROJECTIONS)[number]['id'];
 
@@ -73,19 +85,19 @@ interface MapViewProps {
   onProbe?: (lon: number, lat: number, value: number) => void;
 }
 
-interface Extent {
+export interface Extent {
   lon0: number; lon1: number; lat0: number; lat1: number;
   global: boolean;
 }
 
-const PAD = 4;
+export const PAD = 4;
 const SPHERE = { type: 'Sphere' } as const;
 
-function clamp(v: number, lo: number, hi: number): number {
+export function clamp(v: number, lo: number, hi: number): number {
   return v < lo ? lo : v > hi ? hi : v;
 }
 
-function normLon(lon: number): number {
+export function normLon(lon: number): number {
   let x = lon % 360;
   if (x > 180) x -= 360;
   if (x < -180) x += 360;
@@ -93,7 +105,7 @@ function normLon(lon: number): number {
 }
 
 /** binary search in monotonic array; returns fractional index or NaN if out of range */
-function locate(arr: number[], x: number): number {
+export function locate(arr: number[], x: number): number {
   const n = arr.length;
   if (n < 2) return NaN;
   const asc = arr[n - 1] >= arr[0];
@@ -119,7 +131,7 @@ function locate(arr: number[], x: number): number {
 }
 
 /** Bounding box of the sample coordinates (in lon/lat degrees). */
-function computeExtent(lonArr: number[], latArr: number[]): Extent {
+export function computeExtent(lonArr: number[], latArr: number[]): Extent {
   let lon0 = Infinity, lon1 = -Infinity, lat0 = Infinity, lat1 = -Infinity;
   for (const v of lonArr) { if (Number.isFinite(v)) { if (v < lon0) lon0 = v; if (v > lon1) lon1 = v; } }
   for (const v of latArr) { if (Number.isFinite(v)) { if (v < lat0) lat0 = v; if (v > lat1) lat1 = v; } }
@@ -185,6 +197,7 @@ function fitProjection(
 }
 
 export default function MapView({ data, nx, ny, lons, lats, colormap, vmin, vmax, onProbe }: MapViewProps) {
+  const { t } = useI18n();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: 600, h: 400 });
@@ -415,30 +428,30 @@ export default function MapView({ data, nx, ny, lons, lats, colormap, vmin, vmax
 
   return (
     <div className="flex h-full w-full flex-col">
-      <div aria-label="地图投影" className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1.5 px-2 pb-2 text-[11px]">
+      <div aria-label={t('map.aria')} className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1.5 px-2 pb-2 text-[11px]">
         <label className="flex items-center gap-1.5 text-muted">
-          投影
+          {t('map.projection')}
           <select
-            aria-label="投影"
+            aria-label={t('map.projection')}
             value={settings.id}
             onChange={(e) => selectProjection(e.target.value as ProjectionId)}
             className="field"
           >
             {PROJECTION_GROUPS.map((g) => (
-              <optgroup key={g} label={g}>
+              <optgroup key={g} label={t(GROUP_LABEL_KEY[g])}>
                 {PROJECTIONS.filter((p) => p.group === g).map((p) => (
-                  <option key={p.id} value={p.id}>{p.label}</option>
+                  <option key={p.id} value={p.id}>{t(p.labelKey)}</option>
                 ))}
               </optgroup>
             ))}
           </select>
         </label>
-        {numberField('中心经度', settings.centerLon, -360, 360, 1, (v) => patch({ centerLon: v }))}
-        {numberField('中心纬度', settings.centerLat, -90, 90, 1, (v) => patch({ centerLat: v }))}
-        {numberField('缩放', settings.zoom, 1, 20, 0.1, (v) => patch({ zoom: v }), '×')}
-        {def.clip && numberField('裁剪角', settings.clipAngle, 1, def.id === 'gnomonic' ? 85 : 179, 1, (v) => patch({ clipAngle: v }))}
-        {def.parallels && numberField('标准纬线 1', settings.parallel1, -89, 89, 1, (v) => patch({ parallel1: v }))}
-        {def.parallels && numberField('标准纬线 2', settings.parallel2, -89, 89, 1, (v) => patch({ parallel2: v }))}
+        {numberField(t('map.centerLon'), settings.centerLon, -360, 360, 1, (v) => patch({ centerLon: v }))}
+        {numberField(t('map.centerLat'), settings.centerLat, -90, 90, 1, (v) => patch({ centerLat: v }))}
+        {numberField(t('map.zoom'), settings.zoom, 1, 20, 0.1, (v) => patch({ zoom: v }), '×')}
+        {def.clip && numberField(t('map.clipAngle'), settings.clipAngle, 1, def.id === 'gnomonic' ? 85 : 179, 1, (v) => patch({ clipAngle: v }))}
+        {def.parallels && numberField(t('map.parallel1'), settings.parallel1, -89, 89, 1, (v) => patch({ parallel1: v }))}
+        {def.parallels && numberField(t('map.parallel2'), settings.parallel2, -89, 89, 1, (v) => patch({ parallel2: v }))}
         <label className="flex items-center gap-1.5 text-muted">
           <input
             type="checkbox"
@@ -446,9 +459,9 @@ export default function MapView({ data, nx, ny, lons, lats, colormap, vmin, vmax
             disabled={extent.global}
             onChange={(e) => patch({ fitToData: e.target.checked })}
           />
-          适应数据范围
+          {t('map.fitToData')}
         </label>
-        <button className="btn btn-quiet" onClick={resetView}>重置视图</button>
+        <button className="btn btn-quiet" onClick={resetView}>{t('map.resetView')}</button>
       </div>
       <div ref={wrapRef} className="min-h-0 flex-1">
         <canvas ref={canvasRef} style={{ width: '100%', height: '100%' }} onMouseMove={onMove} />

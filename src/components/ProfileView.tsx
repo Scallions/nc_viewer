@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef } from 'react';
 import * as echarts from 'echarts';
+import { useI18n } from '../lib/i18nContext';
 import type { ProfileLine } from '../lib/ncService';
 import { PLOT_THEME } from '../lib/uiTheme';
 
@@ -19,7 +20,7 @@ const MAX_SYMBOLS = 500;
  * each bucket keeps its lowest and highest value, so peaks and troughs survive
  * while the point count (and thus ECharts work) drops by orders of magnitude.
  */
-function downsampleProfile(coords: number[], values: number[]): { coords: number[]; values: number[]; downsampled: boolean } {
+export function downsampleProfile(coords: number[], values: number[]): { coords: number[]; values: number[]; downsampled: boolean } {
   const n = coords.length;
   if (n <= MAX_POINTS) return { coords, values, downsampled: false };
   const buckets = Math.floor(MAX_POINTS / 2);
@@ -48,6 +49,7 @@ function downsampleProfile(coords: number[], values: number[]): { coords: number
 
 /** 1D vertical profile: values vs height/depth/pressure. */
 export default function ProfileView({ profile, varName, fixLabel }: ProfileViewProps) {
+  const { t } = useI18n();
   const ref = useRef<HTMLDivElement>(null);
   const chartRef = useRef<echarts.ECharts | null>(null);
 
@@ -79,7 +81,7 @@ export default function ProfileView({ profile, varName, fixLabel }: ProfileViewP
       grid: { left: 64, right: 56, top: 58, bottom: 48 },
       title: {
         text: view.downsampled
-          ? `${varName} · ${fixLabel} · 显示 ${view.coords.length}/${total} 点`
+          ? `${varName} · ${fixLabel} · ${t('profile.downsampled', { shown: view.coords.length, total })}`
           : `${varName} · ${fixLabel}`,
         left: 'center',
         textStyle: { color: PLOT_THEME.ink, fontSize: 12, fontWeight: 500 },
@@ -122,7 +124,7 @@ export default function ProfileView({ profile, varName, fixLabel }: ProfileViewP
         },
       },
     });
-  }, [view, total, coordName, varName, fixLabel]);
+  }, [view, total, coordName, varName, fixLabel, t]);
 
   return <div ref={ref} className="h-full w-full" />;
 }

@@ -8,6 +8,8 @@ import { open } from '@tauri-apps/plugin-dialog';
 import { readFile, stat } from '@tauri-apps/plugin-fs';
 import Heatmap from './components/Heatmap';
 import { COLORMAPS, colorFor, type ColormapName } from './lib/colormap';
+import { LOCALES, LOCALE_LABELS, type MessageKey } from './lib/i18n';
+import { useI18n } from './lib/i18nContext';
 import Inspector from './components/Inspector';
 import VarTree from './components/VarTree';
 import MapView from './components/MapView';
@@ -33,14 +35,15 @@ interface Probe {
 
 type ViewMode = 'slice' | 'map' | 'profile' | 'volume';
 
-const VIEW_TABS: { id: ViewMode; label: string; icon: LucideIcon }[] = [
-  { id: 'slice', label: '切片', icon: Grid2X2 },
-  { id: 'map', label: '地图', icon: Map },
-  { id: 'profile', label: '剖面', icon: ChartNoAxesColumn },
-  { id: 'volume', label: '3D', icon: Box },
+const VIEW_TABS: { id: ViewMode; labelKey: MessageKey; icon: LucideIcon }[] = [
+  { id: 'slice', labelKey: 'view.slice', icon: Grid2X2 },
+  { id: 'map', labelKey: 'view.map', icon: Map },
+  { id: 'profile', labelKey: 'view.profile', icon: ChartNoAxesColumn },
+  { id: 'volume', labelKey: 'view.volume', icon: Box },
 ];
 
 export default function App() {
+  const { t, locale, setLocale } = useI18n();
   const [ds, setDs] = useState<NcDataset | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -465,7 +468,7 @@ export default function App() {
         <div className="flex shrink-0 items-center gap-2.5">
           <Grid2X2 size={23} strokeWidth={1.8} className="text-ink" aria-hidden="true" />
           <span className="text-[15px] font-semibold tracking-tight">NC Viewer</span>
-          <span className="header-subtitle ml-1 text-[11px] text-faint">NetCDF 数据工作台</span>
+          <span className="header-subtitle ml-1 text-[11px] text-faint">{t('app.subtitle')}</span>
         </div>
         <div className="mx-1 h-5 w-px shrink-0 bg-line" />
         <button
@@ -473,7 +476,7 @@ export default function App() {
           disabled={loading}
           className="btn btn-primary"
         >
-          <FolderOpen size={15} aria-hidden="true" />打开文件
+          <FolderOpen size={15} aria-hidden="true" />{t('app.openFile')}
         </button>
         <input
           ref={fileInput}
@@ -489,31 +492,44 @@ export default function App() {
         <div className="flex min-w-0 flex-1 items-center gap-2 text-[12px] text-muted">
           {ds && <><ChevronRight size={14} className="shrink-0 text-faint" aria-hidden="true" /><span className="truncate" title={ds.fileName}>{ds.fileName}</span><span className="file-format shrink-0 rounded border border-line px-1.5 py-0.5 font-mono text-[10px] text-muted">{ds.format}</span></>}
         </div>
-        <span className="export-label text-[11px] text-faint">导出</span>
-        <button onClick={exportCsv} disabled={!activeStats && !(viewMode === 'profile' && profile)} title="导出 CSV" aria-label="导出 CSV" className="btn">
+        <span className="export-label text-[11px] text-faint">{t('app.export')}</span>
+        <button onClick={exportCsv} disabled={!activeStats && !(viewMode === 'profile' && profile)} title={t('app.exportCsv')} aria-label={t('app.exportCsv')} className="btn">
           <FileSpreadsheet size={14} aria-hidden="true" />CSV
         </button>
-        <button onClick={exportPng} disabled={!(viewMode === 'slice' || viewMode === 'map') || !activeStats} title="导出 PNG" aria-label="导出 PNG" className="btn">
+        <button onClick={exportPng} disabled={!(viewMode === 'slice' || viewMode === 'map') || !activeStats} title={t('app.exportPng')} aria-label={t('app.exportPng')} className="btn">
           <FileImage size={14} aria-hidden="true" />PNG
         </button>
-        <button onClick={exportAttrs} disabled={!ds} title="导出元数据 JSON" aria-label="导出元数据 JSON" className="btn">
+        <button onClick={exportAttrs} disabled={!ds} title={t('app.exportJson')} aria-label={t('app.exportJson')} className="btn">
           <FileCode2 size={14} aria-hidden="true" />JSON
         </button>
+        <div className="mx-1 h-5 w-px shrink-0 bg-line" />
+        <div role="group" aria-label={t('app.language')} className="flex shrink-0 items-center gap-0.5">
+          {LOCALES.map((l) => (
+            <button
+              key={l}
+              onClick={() => setLocale(l)}
+              aria-pressed={locale === l}
+              className="view-tab px-2 py-1 text-[11px]"
+            >
+              {LOCALE_LABELS[l]}
+            </button>
+          ))}
+        </div>
       </header>
 
       {error && (
         <div role="alert" className="flex shrink-0 items-center gap-3 border-b border-red-200 bg-red-50 px-4 py-2 text-[12px] text-red-700">
-          <Info size={15} className="shrink-0" aria-hidden="true" /><span className="min-w-0 flex-1 break-all">{error}</span><button aria-label="关闭错误提示" className="rounded p-1 hover:bg-red-100" onClick={() => setError(null)}><X size={15} /></button>
+          <Info size={15} className="shrink-0" aria-hidden="true" /><span className="min-w-0 flex-1 break-all">{error}</span><button aria-label={t('app.dismissError')} className="rounded p-1 hover:bg-red-100" onClick={() => setError(null)}><X size={15} /></button>
         </div>
       )}
 
       <div className="flex min-h-0 flex-1">
-        <aside aria-label="变量浏览器" className="sidebar-left flex shrink-0 flex-col border-r border-line bg-surface">
-          <div className="panel-heading"><Layers size={15} className="text-muted" aria-hidden="true" />变量浏览器</div>
+        <aside aria-label={t('tree.title')} className="sidebar-left flex shrink-0 flex-col border-r border-line bg-surface">
+          <div className="panel-heading"><Layers size={15} className="text-muted" aria-hidden="true" />{t('tree.title')}</div>
           {ds ? (
             <VarTree ds={ds} selected={selected} onSelect={handleSelect} />
           ) : (
-            <div className="px-4 py-6 text-[12px] leading-6 text-muted">打开数据文件后，<br />在这里浏览和搜索变量。</div>
+            <div className="px-4 py-6 text-[12px] leading-6 text-muted">{t('tree.emptyHint')}</div>
           )}
         </aside>
 
@@ -526,26 +542,26 @@ export default function App() {
                   <span className="shrink-0 rounded border border-line bg-surface px-2 py-0.5 font-mono text-[10px] text-muted">{variable.shape.length}D · {variable.dtype}</span>
                 </div>
                 {activeStats && <div className="flex flex-wrap gap-4 text-[11px] text-muted">
-                  <span>最小 <span className="stat-value ml-1">{fmt(activeStats.min)}</span></span>
-                  <span>最大 <span className="stat-value ml-1">{fmt(activeStats.max)}</span></span>
-                  <span>均值 <span className="stat-value ml-1">{fmt(activeStats.mean)}</span></span>
+                  <span>{t('stats.min')} <span className="stat-value ml-1">{fmt(activeStats.min)}</span></span>
+                  <span>{t('stats.max')} <span className="stat-value ml-1">{fmt(activeStats.max)}</span></span>
+                  <span>{t('stats.mean')} <span className="stat-value ml-1">{fmt(activeStats.mean)}</span></span>
                 </div>}
               </div>
               {/* view tabs */}
-              <div aria-label="可视化模式" className="flex shrink-0 flex-wrap items-center gap-1 border-b border-line px-4 pb-2">
-                {VIEW_TABS.map((t) => {
-                  const dis = tabDisabled(t.id);
-                  const Icon = t.icon;
+              <div aria-label={t('app.viewModeLabel')} className="flex shrink-0 flex-wrap items-center gap-1 border-b border-line px-4 pb-2">
+                {VIEW_TABS.map((tab) => {
+                  const dis = tabDisabled(tab.id);
+                  const Icon = tab.icon;
                   return (
                     <button
-                      key={t.id}
+                      key={tab.id}
                       disabled={dis}
-                      aria-pressed={viewMode === t.id}
-                      onClick={() => setViewMode(t.id)}
-                      title={dis ? '当前变量不支持该视图' : t.label}
+                      aria-pressed={viewMode === tab.id}
+                      onClick={() => setViewMode(tab.id)}
+                      title={dis ? t('app.viewUnsupported') : t(tab.labelKey)}
                       className="view-tab"
                     >
-                      <Icon size={14} strokeWidth={1.7} aria-hidden="true" />{t.label}
+                      <Icon size={14} strokeWidth={1.7} aria-hidden="true" />{t(tab.labelKey)}
                     </button>
                   );
                 })}
@@ -556,7 +572,7 @@ export default function App() {
                 )}
                 {viewMode === 'profile' && variable && profileAxis >= 0 && (
                   <label className="ml-2 flex items-center gap-1 text-[12px] text-muted">
-                    剖面轴
+                    {t('profile.axis')}
                     <select
                       value={profileAxis}
                       onChange={(e) => setProfileAxis(Number(e.target.value))}
@@ -583,7 +599,7 @@ export default function App() {
                       <span className="w-24 truncate font-mono text-muted" title={d.name}>{d.name}</span>
                       <input
                         type="range"
-                        aria-label={`${d.name} 索引`}
+                        aria-label={t('controls.indexAria', { name: d.name })}
                         min={0}
                         max={d.len - 1}
                         value={fixed[d.name] ?? 0}
@@ -627,17 +643,17 @@ export default function App() {
                   />
                 )}
                 {viewMode === 'map' && !mapSlice && (
-                  <CenterNote text={viewLoading ? '地图投影计算中…' : '无经纬度维度，无法显示地图'} />
+                  <CenterNote text={viewLoading ? t('map.computing') : t('map.noGeo')} />
                 )}
                 {viewMode === 'profile' && profile && variable && (
                   <ProfileView
                     profile={profile}
                     varName={variable.shortName}
-                    fixLabel={sliderDims.map((d) => `${d.name}=${fixed[d.name] ?? 0}`).join(' ') || '全选'}
+                    fixLabel={sliderDims.map((d) => `${d.name}=${fixed[d.name] ?? 0}`).join(' ') || t('profile.allFixed')}
                   />
                 )}
                 {viewMode === 'profile' && !profile && (
-                  <CenterNote text={viewLoading ? '剖面计算中…' : '暂无剖面数据'} />
+                  <CenterNote text={viewLoading ? t('profile.computing') : t('profile.empty')} />
                 )}
                 {viewMode === 'volume' && volume && (
                   <VolumeView
@@ -650,14 +666,14 @@ export default function App() {
                   />
                 )}
                 {viewMode === 'volume' && !volume && (
-                  <CenterNote text={viewLoading ? '体数据加载中…' : '需要 ≥3D 变量'} />
+                  <CenterNote text={viewLoading ? t('volume.loading') : t('volume.need3d')} />
                 )}
                 {(sliceLoading || viewLoading) && (
-                  <div role="status" className="absolute right-3 top-2 flex items-center gap-1.5 rounded border border-line bg-surface px-2 py-1 text-[11px] text-muted"><LoaderCircle size={12} className="animate-spin" aria-hidden="true" />加载中…</div>
+                  <div role="status" className="absolute right-3 top-2 flex items-center gap-1.5 rounded border border-line bg-surface px-2 py-1 text-[11px] text-muted"><LoaderCircle size={12} className="animate-spin" aria-hidden="true" />{t('app.loading')}</div>
                 )}
                 {probe && (viewMode === 'slice' || viewMode === 'map') && activeStats && (
                   <div className="pointer-events-none absolute bottom-2 left-3 rounded border border-line bg-surface/95 px-2 py-1 font-mono text-[11px] text-ink">
-                    {activeStats.xName}={fmt(probe.x)} · {activeStats.yName}={fmt(probe.y)} · 值={fmt(probe.value)}
+                    {activeStats.xName}={fmt(probe.x)} · {activeStats.yName}={fmt(probe.y)} · {t('probe.value')}={fmt(probe.value)}
                   </div>
                 )}
               </div>
@@ -670,13 +686,13 @@ export default function App() {
                     className="btn"
                     aria-pressed={playing}
                   >
-                    {playing ? <Pause size={13} aria-hidden="true" /> : <Play size={13} aria-hidden="true" />}{playing ? '暂停' : '播放'} <kbd className="rounded border border-line px-1 text-[10px] text-faint">空格</kbd>
+                    {playing ? <Pause size={13} aria-hidden="true" /> : <Play size={13} aria-hidden="true" />}{playing ? t('controls.pause') : t('controls.play')} <kbd className="rounded border border-line px-1 text-[10px] text-faint">{t('controls.space')}</kbd>
                   </button>
                 ) : (
-                  <span className="text-muted">{variable.shape.length <= 2 ? '2D 变量 · 无时间维' : '无可动画维度'}</span>
+                  <span className="text-muted">{variable.shape.length <= 2 ? t('controls.noTimeDim') : t('controls.noAnimDim')}</span>
                 )}
                 <label className="flex items-center gap-1.5 text-muted">
-                  色标
+                  {t('controls.colormap')}
                   <select
                     value={colormap}
                     onChange={(e) => setColormap(e.target.value as ColormapName)}
@@ -704,24 +720,24 @@ export default function App() {
                   />
                 </label>
                 {(vmin !== '' || vmax !== '') && (
-                  <button onClick={() => { setVmin(''); setVmax(''); }} className="text-muted hover:text-ink">重置</button>
+                  <button onClick={() => { setVmin(''); setVmax(''); }} className="text-muted hover:text-ink">{t('controls.reset')}</button>
                 )}
                 {viewMode === 'volume' && (
                   <>
                     <label className="flex items-center gap-1.5 text-muted">
-                      模式
+                      {t('volume.mode')}
                       <select
                         value={volumeMode}
                         onChange={(e) => setVolumeMode(e.target.value as 'slices' | 'surface')}
                         className="field"
                       >
-                        <option value="slices">正交切片</option>
-                        <option value="surface">等值面</option>
+                        <option value="slices">{t('volume.modeSlices')}</option>
+                        <option value="surface">{t('volume.modeSurface')}</option>
                       </select>
                     </label>
                     {volumeMode === 'surface' && volume && (
                       <label className="flex items-center gap-1 text-muted">
-                        等值
+                        {t('volume.iso')}
                         <input
                           value={iso}
                           onChange={(e) => setIso(e.target.value)}
@@ -735,47 +751,47 @@ export default function App() {
                 <div className="flex-1" />
                 <span className="font-mono text-muted">
                   {viewMode === 'slice' && preview && slice && (
-                    <>{preview.nx} × {preview.ny}{preview.nx !== slice.nx ? ` (降采样自 ${slice.nx} × ${slice.ny})` : ''}</>
+                    <>{preview.nx} × {preview.ny}{preview.nx !== slice.nx ? ` ${t('app.downsampledFrom', { nx: slice.nx, ny: slice.ny })}` : ''}</>
                   )}
                   {viewMode === 'map' && mapPreview && mapSlice && (
-                    <>{mapPreview.nx} × {mapPreview.ny} 地图投影</>
+                    <>{t('app.mapProjection', { nx: mapPreview.nx, ny: mapPreview.ny })}</>
                   )}
                   {viewMode === 'profile' && profile && (
-                    <>{profile.coords.length} 点剖面</>
+                    <>{t('app.profilePoints', { n: profile.coords.length })}</>
                   )}
                   {viewMode === 'volume' && volume && (
-                    <>{volume.nx}×{volume.ny}×{volume.nz} 体</>
+                    <>{t('app.volumeShape', { nx: volume.nx, ny: volume.ny, nz: volume.nz })}</>
                   )}
                 </span>
               </div>
             </>
           ) : (
             <div className="flex min-h-0 flex-1 items-center justify-center overflow-y-auto p-6">
-              {ds ? <div className="text-center"><Grid2X2 size={28} className="mx-auto mb-4 text-faint" aria-hidden="true" /><p className="text-[14px] font-medium">选择一个二维或更高维变量</p><p className="mt-2 text-[12px] text-muted">从左侧列表选择变量，开始可视化。</p></div> : <EmptyHint loading={loading} onOpen={openFile} />}
+              {ds ? <div className="text-center"><Grid2X2 size={28} className="mx-auto mb-4 text-faint" aria-hidden="true" /><p className="text-[14px] font-medium">{t('empty.selectVar')}</p><p className="mt-2 text-[12px] text-muted">{t('empty.selectVarHint')}</p></div> : <EmptyHint loading={loading} onOpen={openFile} />}
             </div>
           )}
         </main>
 
-        <aside aria-label="属性检查器" className="sidebar-right flex shrink-0 flex-col border-l border-line bg-surface">
-          <div className="panel-heading"><SlidersHorizontal size={15} className="text-muted" aria-hidden="true" />属性检查器</div>
+        <aside aria-label={t('inspector.title')} className="sidebar-right flex shrink-0 flex-col border-l border-line bg-surface">
+          <div className="panel-heading"><SlidersHorizontal size={15} className="text-muted" aria-hidden="true" />{t('inspector.title')}</div>
           {ds ? (
             <Inspector variable={variable} globalAttrs={ds.globalAttributes} />
           ) : (
-            <div className="px-4 py-6 text-[12px] leading-6 text-muted">选择变量后查看<br />维度、数据类型与属性。<div className="mt-5 border-t border-line pt-4 text-[11px] text-faint">文件的全局属性也会显示在这里。</div></div>
+            <div className="px-4 py-6 text-[12px] leading-6 text-muted">{t('inspector.emptyHint')}<br />{t('inspector.emptyHint2')}<div className="mt-5 border-t border-line pt-4 text-[11px] text-faint">{t('inspector.globalHint')}</div></div>
           )}
         </aside>
       </div>
 
       <footer className="flex h-8 shrink-0 items-center gap-2 border-t border-line bg-surface px-4 text-[11px] text-muted">
         <span className={`h-1.5 w-1.5 rounded-full ${ds ? 'bg-emerald-600' : 'bg-faint'}`} />
-        <span>{loading ? '正在解析文件…' : ds ? `${ds.variables.length} 变量 · ${ds.dimensions.length} 维度` : '就绪 · 等待打开文件'}</span>
+        <span>{loading ? t('app.parsing') : ds ? t('app.footerCounts', { vars: ds.variables.length, dims: ds.dimensions.length }) : t('app.ready')}</span>
         {ds && isBackendDataset(ds) && (
-          <span className="rounded bg-accent-soft px-1.5 py-0.5 text-[10px] text-accent" title="大文件：按需从磁盘读取，未整体载入内存">流式读取</span>
+          <span className="rounded bg-accent-soft px-1.5 py-0.5 text-[10px] text-accent" title={t('app.streamingTitle')}>{t('app.streaming')}</span>
         )}
         <div className="flex-1" />
-        <Database size={12} className="text-faint" aria-hidden="true" /><span>{isTauri ? '桌面版' : 'Web 预览'}</span>
+        <Database size={12} className="text-faint" aria-hidden="true" /><span>{isTauri ? t('app.desktop') : t('app.webPreview')}</span>
       </footer>
-      {dragging && <div className="pointer-events-none absolute inset-2 z-50 flex items-center justify-center rounded-xl border-2 border-dashed border-accent bg-accent-soft/95"><div className="text-center"><Upload size={32} className="mx-auto mb-3 text-accent" aria-hidden="true" /><p className="text-[18px] font-semibold text-accent">松开以打开文件</p><p className="mt-2 text-[12px] text-muted">NetCDF-3 / NetCDF-4 / HDF5</p></div></div>}
+      {dragging && <div className="pointer-events-none absolute inset-2 z-50 flex items-center justify-center rounded-xl border-2 border-dashed border-accent bg-accent-soft/95"><div className="text-center"><Upload size={32} className="mx-auto mb-3 text-accent" aria-hidden="true" /><p className="text-[18px] font-semibold text-accent">{t('drop.release')}</p><p className="mt-2 text-[12px] text-muted">NetCDF-3 / NetCDF-4 / HDF5</p></div></div>}
     </div>
   );
 }
@@ -811,19 +827,20 @@ function CenterNote({ text }: { text: string }) {
 }
 
 function EmptyHint({ loading, onOpen }: { loading: boolean; onOpen: () => void }) {
+  const { t } = useI18n();
   return (
     <div className="welcome-card text-center">
       <div className="mx-auto mb-6 flex h-14 w-14 items-center justify-center rounded-xl border border-line bg-canvas">
         {loading ? <LoaderCircle size={25} className="animate-spin text-muted" aria-hidden="true" /> : <FolderOpen size={25} strokeWidth={1.5} className="text-muted" aria-hidden="true" />}
       </div>
-      <h1 className="text-[22px] font-semibold tracking-tight">{loading ? '正在读取数据' : '从一个数据文件开始'}</h1>
-      <p className="mt-3 text-[13px] leading-6 text-muted">{loading ? '文件解析完成后，即可浏览变量与切片。' : '拖拽文件到这里，探索变量、切片与空间分布。'}</p>
+      <h1 className="text-[22px] font-semibold tracking-tight">{loading ? t('empty.loadingTitle') : t('empty.title')}</h1>
+      <p className="mt-3 text-[13px] leading-6 text-muted">{loading ? t('empty.loadingHint') : t('empty.hint')}</p>
       <button onClick={onOpen} disabled={loading} className="btn btn-primary mt-6 px-5 py-2.5">
-        <FolderOpen size={15} aria-hidden="true" />选择文件
+        <FolderOpen size={15} aria-hidden="true" />{t('empty.choose')}
       </button>
-      <div className="mt-5 text-[11px] text-faint">支持 NetCDF-3、NetCDF-4 与 HDF5</div>
+      <div className="mt-5 text-[11px] text-faint">{t('empty.formats')}</div>
       <div className="mt-7 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 border-t border-line pt-5 text-[11px] text-muted">
-        <span className="flex items-center gap-1.5"><Grid2X2 size={13} aria-hidden="true" />二维切片</span><span className="flex items-center gap-1.5"><Map size={13} aria-hidden="true" />地图投影</span><span className="flex items-center gap-1.5"><Box size={13} aria-hidden="true" />三维预览</span>
+        <span className="flex items-center gap-1.5"><Grid2X2 size={13} aria-hidden="true" />{t('empty.featSlice')}</span><span className="flex items-center gap-1.5"><Map size={13} aria-hidden="true" />{t('empty.featMap')}</span><span className="flex items-center gap-1.5"><Box size={13} aria-hidden="true" />{t('empty.featVolume')}</span>
       </div>
     </div>
   );

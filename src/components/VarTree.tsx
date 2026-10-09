@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Braces, Database, Search } from 'lucide-react';
+import { useI18n } from '../lib/i18nContext';
 import type { NcDataset, NcVariable } from '../lib/ncTypes';
 
 interface VarTreeProps {
@@ -9,6 +10,7 @@ interface VarTreeProps {
 }
 
 export default function VarTree({ ds, selected, onSelect }: VarTreeProps) {
+  const { t } = useI18n();
   const [q, setQ] = useState('');
   const [showCoords, setShowCoords] = useState(true);
   const vars = useMemo(() => {
@@ -31,7 +33,7 @@ export default function VarTree({ ds, selected, onSelect }: VarTreeProps) {
           <span className="truncate text-[13px] font-medium">{v.shortName}</span>
           <span className="ml-auto shrink-0 rounded bg-surface px-1.5 py-0.5 text-[10px] text-muted">{v.shape.length}D</span>
         </div>
-        <div className="mt-1 truncate pl-[22px] font-mono text-[11px] text-muted">{v.dtype} · {v.shape.join(' × ') || '标量'}</div>
+        <div className="mt-1 truncate pl-[22px] font-mono text-[11px] text-muted">{v.dtype} · {v.shape.join(' × ') || t('tree.scalar')}</div>
       </button>
     );
   };
@@ -41,25 +43,25 @@ export default function VarTree({ ds, selected, onSelect }: VarTreeProps) {
       <div className="space-y-3 p-3">
         <div className="relative">
           <Search size={14} className="pointer-events-none absolute left-2.5 top-2.5 text-faint" aria-hidden="true" />
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="搜索变量…" aria-label="搜索变量"
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t('tree.searchPlaceholder')} aria-label={t('tree.searchAria')}
             className="field field-search h-9 w-full" />
         </div>
         <label className="flex cursor-pointer items-center gap-2 text-[12px] text-muted">
-          <input type="checkbox" checked={showCoords} onChange={(e) => setShowCoords(e.target.checked)} />显示坐标变量
+          <input type="checkbox" checked={showCoords} onChange={(e) => setShowCoords(e.target.checked)} />{t('tree.showCoords')}
         </label>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
         {vars.dataVars.length > 0 && <>
-          <div className="flex items-center justify-between px-3 pb-2 pt-2 text-[11px] font-medium text-muted"><span>数据变量</span><span>{vars.dataVars.length}</span></div>
+          <div className="flex items-center justify-between px-3 pb-2 pt-2 text-[11px] font-medium text-muted"><span>{t('tree.dataVars')}</span><span>{vars.dataVars.length}</span></div>
           {vars.dataVars.map(renderVar)}
         </>}
         {vars.coords.length > 0 && <>
-          <div className="flex items-center justify-between px-3 pb-2 pt-4 text-[11px] font-medium text-muted"><span>坐标变量</span><span>{vars.coords.length}</span></div>
+          <div className="flex items-center justify-between px-3 pb-2 pt-4 text-[11px] font-medium text-muted"><span>{t('tree.coordVars')}</span><span>{vars.coords.length}</span></div>
           {vars.coords.map(renderVar)}
         </>}
-        {vars.dataVars.length === 0 && vars.coords.length === 0 && <div className="px-2 py-8 text-center text-[12px] text-muted">无匹配变量</div>}
+        {vars.dataVars.length === 0 && vars.coords.length === 0 && <div className="px-2 py-8 text-center text-[12px] text-muted">{t('tree.noMatch')}</div>}
       </div>
-      <div className="border-t border-line px-4 py-3 text-[11px] text-muted">{ds.variables.length} 个变量 · {ds.dimensions.length} 个维度</div>
+      <div className="border-t border-line px-4 py-3 text-[11px] text-muted">{t('app.footerCounts', { vars: ds.variables.length, dims: ds.dimensions.length })}</div>
     </div>
   );
 }
