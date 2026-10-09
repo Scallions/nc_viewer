@@ -96,8 +96,13 @@ jobs:
           path: artifacts
           merge-multiple: true
 
-      - name: List bundles
-        run: ls -R artifacts
+      - name: Flatten bundles
+        # upload-artifact preserves the directory layout of each glob
+        # (nsis/, msi/, deb/, rpm/, appimage/), so collapse them into one dir
+        run: |
+          find artifacts -type f -exec mv -f {} artifacts/ \;
+          find artifacts -mindepth 1 -type d -exec rm -rf {} +
+          ls -l artifacts
 
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2

@@ -16,15 +16,17 @@ Tauri 2 + React 19 + Vite + TypeScript 桌面应用，用于浏览 NetCDF-3 / Ne
 - `npm run build` — `tsc -b && vite build`，输出 `dist/` (Tauri `frontendDist`)
 - `npm run lint` — `oxlint`
 - `npm run preview` — `vite preview`
+- `npm run test` — 单元测试（vitest 跑 `src/**/*.test.ts`，纯 Node）
+- `npm run test:watch` — 单元测试监听模式
 - `npm run bench` — 前端性能基准（vitest，纯 Node，无界面）
 - `npm run bench:backend` — 后端性能基准（`cargo run --release --example bench`）
 - `npx tauri dev` / `npx tauri build` — 桌面壳 (`beforeDevCommand: npm run dev`, `beforeBuildCommand: npm run build`)
 - `cargo fmt` / `cargo clippy -D warnings` / `cargo test` — Rust 格式、lint、测试（`--manifest-path src-tauri/Cargo.toml`）
-- 无前端测试脚本；手动校验见 `test-data/` (`gen.py` / `gen_vol.py` 生成 `sample3.nc` / `sample4.nc` / `sample_vol.nc`，浏览器拖拽打开验证)
+- 手动校验见 `test-data/` (`gen.py` / `gen_vol.py` / `gen_demo.py` 生成样本，浏览器拖拽打开验证)
 
 ## CI / 发布
 
-- `.github/workflows/ci.yml` — push/PR 到 `main`：前端 `build`/`lint`/`bench` + 后端 `fmt --check`/`clippy -D warnings`/`test`（Linux 跑后端，需 webkit2gtk 系统依赖）。
+- `.github/workflows/ci.yml` — push/PR 到 `main`：前端 `build`/`lint`/`test`/`bench` + 后端 `fmt --check`/`clippy -D warnings`/`test`（Linux 跑后端，需 webkit2gtk 系统依赖）。
 - `.github/workflows/release.yml` — 推送 `v*` 标签：Windows/macOS/Linux 三平台矩阵并行构建（NSIS+MSI / 通用 dmg / deb+rpm+AppImage），`release` job 汇总后创建 GitHub Release 并附安装包与自动 release notes；带 `-` 的标签视为预发布。macOS 用 `--target universal-apple-darwin`（需先 `rustup target add` 两个架构），Linux 用 `ubuntu-22.04` 并装 webkit2gtk 等依赖，AppImage 设 `APPIMAGE_EXTRACT_AND_RUN=1` 免 FUSE。
 - 版本号需同步改 `src-tauri/tauri.conf.json`、`src-tauri/Cargo.toml`、`package.json`。
 
@@ -41,10 +43,12 @@ Tauri 2 + React 19 + Vite + TypeScript 桌面应用，用于浏览 NetCDF-3 / Ne
 - `src/lib/ncService.ts` — 解析 + 切片 + 降采样，无 React 依赖。魔数分流 → `parseNetCdf3` (netcdfjs 同步) / `parseNetCdf4` (h5wasm 异步)。另有 `getSlice2DAxes`（任意两维平面）、`getProfile`（1D 剖面）、`getVolume3D`（[z][y][x] 体）、`guessGeoRole`/`geoRolesFor`/`findLonLatAxes`（经纬/垂直/时间识别）、`readCoordPublic`。**大文件分派**：检测到 `isBackendDataset(ds)` 时，`getSlice2DAxes`/`getProfile`/`getVolume3D`/`readCoord` 全部转发给 `ncBackend.ts`。
 - `src/lib/ncBackend.ts` — 大文件 Rust 后端封装（Tauri `invoke`）：`openBackend` / `isBackendDataset` / `getSliceBackend` / `getProfileBackend` / `getVolumeBackend` / `getCoordBackend`。阈值 `LARGE_FILE_BYTES = 64MB`；Web（非 Tauri）无后端。
 - `src-tauri/src/nc_backend.rs` — 纯 Rust 后端（`netcdf-reader` crate，无 C 依赖）。命令：`nc_meta`（仅读头，GB 文件亚毫秒）/ `nc_slice_2d` / `nc_coord` / `nc_profile` / `nc_volume`（strided hyperslab 降采样，不物化全量）。`resolve_coord_path` 支持分组内坐标变量（`depth` → `ocean/depth`）。每次命令重新 `NcFile::open`（打开极廉价），句柄仅存路径。
-- `src/lib/colormap.ts` — 色标唯一源（`STOPS` + 256 级 LUT 缓存），勿在组件内重复定义。
+- `src/lib/colormap.ts` — 色标唯一源（`STOPS` + 256 级 LUT 缓存），勿在组件内重复定义。缓存 key 为 `名称:步数`（不能只按名称——否则 `colormapColors(8)` 会污染 `colorFor` 的 256 级表）。
+- `src/lib/i18n.ts` + `src/lib/i18nContext.tsx` — 界面文案唯一源。`i18n.ts` 是纯模块（`MESSAGES`/`translate`/`interpolate`/`detectLocale`/`loadStoredLocale`），可单测；`i18nContext.tsx` 提供 `I18nProvider` 与 `useI18n()`（在 `main.tsx` 包裹 `<App/>`）。语言存 `localStorage['nc-viewer.locale']`。新增文案：先加到 `zh` 字面量（类型源），再补 `en`；两份 key 必须一致、占位符一致（有单测保障）。
 - `src/lib/uiTheme.ts` — Canvas/WebGL/ECharts 的界面配色适配（坐标轴、网格、提示框、剖面曲线与等值面），与 `index.css` 的浅色 UI tokens 保持一致；科学数据色标仍由 `colormap.ts` 管理。
 - `src-tauri/src/lib.rs` + `main.rs` — Tauri 入口，仅注册 `plugin-fs` / `plugin-dialog` (+ debug 下 `plugin-log`)。
 - `bench/core.bench.ts` + `vitest.config.ts` — 前端性能基准（纯 Node，`environment: node`，无浏览器）。`bench()` 辅助函数做 1 次预热 + 多次采样取中位数。`tsconfig.bench.json` 用 `moduleResolution: bundler` 以便无扩展名导入 `src/lib`。
+- `src/**/*.test.ts` + `tsconfig.test.json` — 单元测试（vitest，`environment: node`）。只测纯函数（色标/地理角色/降采样/投影数学/i18n），不挂载 React 组件；需测的组件内部函数用 `export` 暴露。`tsconfig.test.json` 同样用 `moduleResolution: bundler`，并已登记在根 `tsconfig.json` 的 references。
 - `src-tauri/examples/bench.rs` — 后端性能基准（`cargo run --release --example bench`），覆盖 `nc_meta`/`nc_slice_2d`/`nc_profile`/`nc_volume`；大文件用例在 `NC_BENCH_BIG` 缺失时自动跳过。
 - `src-tauri/tauri.conf.json` — `frontendDist: ../dist`, `devUrl: http://localhost:5173`, 窗口 `NC Viewer 1400x900` (min 1000x650), `csp: null`。
 - `src-tauri/capabilities/default.json` — `core:default, dialog:default, fs:default`，无自定义 scope。
@@ -53,7 +57,8 @@ Tauri 2 + React 19 + Vite + TypeScript 桌面应用，用于浏览 NetCDF-3 / Ne
 
 ## 约定
 
-- TypeScript 严格：`noUnusedLocals/Parameters`，`erasableSyntaxOnly` (勿用枚举/命名空间等运行时语法)，`jsx: react-jsx`。提交前跑 `npm run build`。
+- TypeScript 严格：`noUnusedLocals/Parameters`，`erasableSyntaxOnly` (勿用枚举/命名空间等运行时语法)，`jsx: react-jsx`。提交前跑 `npm run build` 与 `npm run test`。
+- 所有面向用户的文案走 `useI18n().t('key')`，勿在 JSX 里写死中文；投影/视图等“稳定 id + `labelKey`”分离（勿用文案做逻辑比较，如 `MapView` 的 `group` 已改为 `cylindrical/azimuthal/conic`）。
 - UI 优先复用语义颜色与通用控件类，避免散落硬编码配色。保留键盘 `focus-visible` 和选中控件的 `aria-pressed`，输入需有可访问标签。≤1100px 收窄侧栏，≤800px 隐藏右侧检查器以保留视口空间；工具栏允许换行，尊重 `prefers-reduced-motion`。
 - 默认科学色标为 `cividis`（蓝黄），其余色标继续可选；不要把 UI 的蓝色选中态与数据色标耦合。
 - 文件打开双路径：`'__TAURI_INTERNALS__' in window` 判别。Tauri 用 `@tauri-apps/plugin-dialog open` + `@tauri-apps/plugin-fs readFile`；Web 用隐藏 `input[type=file]` + `drag/drop files[0]`。勿用旧 `__TAURI__`。**大文件**：Tauri 下先 `stat` 取大小，≥`LARGE_FILE_BYTES`(64MB) 走 `openBackend` 只读元数据；Web 无后端，一律前端解析。
@@ -77,6 +82,6 @@ Tauri 2 + React 19 + Vite + TypeScript 桌面应用，用于浏览 NetCDF-3 / Ne
 
 ## 相关文档
 
-- `README.md` — 项目文档（功能/格式/开发/测试数据/技术说明），改功能后同步更新
+- `README.md`（English）/ `README.zh.md`（简体中文）— 项目文档（功能/格式/开发/测试/技术说明），改功能后同步更新**两份**（顶部互链语言切换）
 - `src-tauri/tauri.conf.json` / `src-tauri/capabilities/default.json` — 桌面配置与权限
-- `test-data/gen.py`, `test-data/gen_vol.py`, `test-data/gen_demo.py` — 样本生成脚本（校验用脚本已删，改用浏览器拖拽打开验证）；`tools/shot.py` — README 截图脚本（需 playwright，先 `npm run dev`，固定 1440×900 @2x，输出到 `docs/screenshots/`）。
+- `test-data/gen.py`, `test-data/gen_vol.py`, `test-data/gen_demo.py` — 样本生成脚本（校验用脚本已删，改用浏览器拖拽打开验证）；`tools/shot.py` — README 截图脚本（需 playwright，先 `npm run dev`，固定 1440×900 @2x，输出到 `docs/screenshots/`）；`tools/check_i18n.py` — 中英切换冒烟测试。
