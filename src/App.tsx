@@ -1,0 +1,746 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { open } from '@tauri-apps/plugin-dialog';
+import { readFile } from '@tauri-apps/plugin-fs';
+import Heatmap from './components/Heatmap';
+import { COLORMAPS, colorFor, type ColormapName } from './lib/colormap';
+import Inspector from './components/Inspector';
+import VarTree from './components/VarTree';
+import MapView from './components/MapView';
+import ProfileView from './components/ProfileView';
+import VolumeView from './components/VolumeView';
+import {
+  closeDataset, downsamplePlane, findLonLatAxes, geoRolesFor, getProfile,
+  getSlice2DAxes, getSlice2D, getVolume3D, parseNcFile,
+  type ProfileLine,
+} from './lib/ncService';
+import type { GeoRole, NcDataset, Slice2D, Volume3D } from './lib/ncTypes';
+
+const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+
+interface Probe {
+  x: number;
+  y: number;
+  value: number;
+}
+
+type ViewMode = 'slice' | 'map' | 'profile' | 'volume';
+
+const VIEW_TABS: { id: ViewMode; label: string }[] = [
+  { id: 'slice', label: '切片' },
+  { id: 'map', label: '地图' },
+  { id: 'profile', label: '剖面' },
+  { id: 'volume', label: '3D' },
+];
+
+export default function App() {
+  const [ds, setDs] = useState<NcDataset | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [slice, setSlice] = useState<Slice2D | null>(null);
+  const [sliceLoading, setSliceLoading] = useState(false);
+  const [fixed, setFixed] = useState<Record<string, number>>({});
+  const [playing, setPlaying] = useState(false);
+  const [colormap, setColormap] = useState<ColormapName>('viridis');
+  const [vmin, setVmin] = useState<string>('');
+  const [vmax, setVmax] = useState<string>('');
+  const [probe, setProbe] = useState<Probe | null>(null);
+  const [viewMode, setViewMode] = useState<ViewMode>('slice');
+  const [lonLat, setLonLat] = useState<{ lon: number; lat: number } | null>(null);
+  const [roles, setRoles] = useState<GeoRole[]>([]);
+  const [mapSlice, setMapSlice] = useState<Slice2D | null>(null);
+  const [profile, setProfile] = useState<ProfileLine | null>(null);
+  const [profileAxis, setProfileAxis] = useState<number>(-1);
+  const [volume, setVolume] = useState<Volume3D | null>(null);
+  const [volumeAxes, setVolumeAxes] = useState<[number, number, number] | null>(null);
+  const [volumeMode, setVolumeMode] = useState<'slices' | 'surface'>('slices');
+  const [iso, setIso] = useState<string>('');
+  const [viewLoading, setViewLoading] = useState(false);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const playTimer = useRef<number | null>(null);
+
+  const variable = useMemo(
+    () => ds?.variables.find((v) => v.name === selected) ?? null,
+    [ds, selected],
+  );
+
+  const loadBytes = useCallback(async (bytes: Uint8Array, name: string) => {
+    setLoading(true);
+    setError(null);
+    try {
+      if (ds) closeDataset(ds);
+      const parsed = await parseNcFile(bytes, name);
+      setDs(parsed);
+      const first = parsed.variables.find((v) => !v.isCoord && v.shape.length >= 2)
+        ?? parsed.variables.find((v) => v.shape.length >= 2)
+        ?? parsed.variables[0] ?? null;
+      setSelected(first?.name ?? null);
+      setFixed({});
+      setProbe(null);
+      setViewMode('slice');
+      setMapSlice(null);
+      setProfile(null);
+      setProfileAxis(-1);
+      setVolume(null);
+      setVolumeAxes(null);
+      setLonLat(null);
+      setRoles([]);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  }, [ds]);
+
+  const handleSelect = useCallback((name: string) => {
+    setSelected(name);
+    setFixed({});
+    setProbe(null);
+    setMapSlice(null);
+    setProfile(null);
+    setProfileAxis(-1);
+    setVolume(null);
+    setVolumeAxes(null);
+  }, []);
+
+  const openFile = useCallback(async () => {
+    setError(null);
+    try {
+      if (isTauri) {
+        const path = await open({ multiple: false, filters: [{ name: 'NetCDF', extensions: ['nc', 'nc4', 'cdf', 'h5', 'hdf5'] }] });
+        if (typeof path !== 'string' || !path) return;
+        const data = await readFile(path);
+        const name = path.split(/[\\/]/).pop() ?? path;
+        await loadBytes(data, name);
+      } else {
+        fileInput.current?.click();
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }, [loadBytes]);
+
+  const onWebFile = useCallback(async (f: File) => {
+    const buf = new Uint8Array(await f.arrayBuffer());
+    await loadBytes(buf, f.name);
+  }, [loadBytes]);
+
+  useEffect(() => {
+    const h = (e: DragEvent) => e.preventDefault();
+    const drop = (e: DragEvent) => {
+      e.preventDefault();
+      const f = e.dataTransfer?.files?.[0];
+      if (f) void onWebFile(f);
+    };
+    window.addEventListener('dragover', h);
+    window.addEventListener('drop', drop);
+    return () => {
+      window.removeEventListener('dragover', h);
+      window.removeEventListener('drop', drop);
+    };
+  }, [onWebFile]);
+
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => {
+      if (e.code === 'Space' && (e.target as HTMLElement)?.tagName !== 'INPUT' && (e.target as HTMLElement)?.tagName !== 'SELECT') {
+        e.preventDefault();
+        setPlaying((p) => !p);
+      }
+    };
+    window.addEventListener('keydown', h);
+    return () => window.removeEventListener('keydown', h);
+  }, []);
+
+  // base slice (slice mode)
+  useEffect(() => {
+    if (!ds || !selected) {
+      setSlice(null);
+      return;
+    }
+    let cancelled = false;
+    setSliceLoading(true);
+    getSlice2D(ds, selected, fixed)
+      .then((s) => { if (!cancelled) { setSlice(s); setProbe(null); } })
+      .catch((e) => { if (!cancelled) setError(e instanceof Error ? e.message : String(e)); })
+      .finally(() => { if (!cancelled) setSliceLoading(false); });
+    return () => { cancelled = true; };
+  }, [ds, selected, fixed]);
+
+  // geo roles + lon/lat detection
+  useEffect(() => {
+    if (!ds || !variable) {
+      setLonLat(null);
+      setRoles([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await geoRolesFor(ds, variable);
+        if (cancelled) return;
+        setRoles(r);
+        const ll = await findLonLatAxes(ds, variable);
+        if (!cancelled) setLonLat(ll);
+      } catch {
+        if (!cancelled) { setRoles([]); setLonLat(null); }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [ds, variable]);
+
+  // map slice (lon/lat plane)
+  useEffect(() => {
+    if (viewMode !== 'map' || !ds || !selected || !lonLat) {
+      return;
+    }
+    let cancelled = false;
+    setViewLoading(true);
+    getSlice2DAxes(ds, selected, lonLat.lat, lonLat.lon, fixed)
+      .then((s) => { if (!cancelled) setMapSlice(s); })
+      .catch((e) => { if (!cancelled) setError(e instanceof Error ? e.message : String(e)); })
+      .finally(() => { if (!cancelled) setViewLoading(false); });
+    return () => { cancelled = true; };
+  }, [viewMode, ds, selected, fixed, lonLat]);
+
+  // profile axis default: first vertical, else first dim
+  useEffect(() => {
+    if (viewMode !== 'profile' || !variable) return;
+    if (profileAxis < 0 || profileAxis >= variable.shape.length) {
+      const vi = roles.indexOf('vertical');
+      setProfileAxis(vi >= 0 ? vi : 0);
+    }
+  }, [viewMode, variable, roles, profileAxis]);
+
+  // profile data
+  useEffect(() => {
+    if (viewMode !== 'profile' || !ds || !selected || profileAxis < 0) return;
+    let cancelled = false;
+    setViewLoading(true);
+    getProfile(ds, selected, profileAxis, fixed)
+      .then((p) => { if (!cancelled) setProfile(p); })
+      .catch((e) => { if (!cancelled) setError(e instanceof Error ? e.message : String(e)); })
+      .finally(() => { if (!cancelled) setViewLoading(false); });
+    return () => { cancelled = true; };
+  }, [viewMode, ds, selected, profileAxis, fixed]);
+
+  // volume axes default: [vertical|0, lat|ny-2, lon|nx-1]
+  useEffect(() => {
+    if (viewMode !== 'volume' || !variable) return;
+    if (volumeAxes) return;
+    const rank = variable.shape.length;
+    if (rank < 3) return;
+    const vi = roles.indexOf('vertical');
+    const z = vi >= 0 ? vi : 0;
+    let y = rank - 2, x = rank - 1;
+    if (lonLat) {
+      // ensure x=lon, y=lat when possible
+      x = lonLat.lon;
+      y = lonLat.lat;
+      if (z === x || z === y) {
+        const others = variable.shape.map((_, i) => i).filter((i) => i !== x && i !== y);
+        if (others.length > 0) {
+          // pick first non-xy as z
+          const nz = others[0];
+          setVolumeAxes([nz, y, x]);
+          return;
+        }
+      }
+    }
+    if (z === x || z === y) {
+      const others = variable.shape.map((_, i) => i).filter((i) => i !== x && i !== y);
+      setVolumeAxes([others[0] ?? 0, y, x]);
+    } else {
+      setVolumeAxes([z, y, x]);
+    }
+  }, [viewMode, variable, roles, lonLat, volumeAxes]);
+
+  // volume data
+  useEffect(() => {
+    if (viewMode !== 'volume' || !ds || !selected || !volumeAxes) return;
+    let cancelled = false;
+    setViewLoading(true);
+    getVolume3D(ds, selected, volumeAxes[0], volumeAxes[1], volumeAxes[2], fixed)
+      .then((v) => { if (!cancelled) setVolume(v); })
+      .catch((e) => { if (!cancelled) setError(e instanceof Error ? e.message : String(e)); })
+      .finally(() => { if (!cancelled) setViewLoading(false); });
+    return () => { cancelled = true; };
+  }, [viewMode, ds, selected, volumeAxes, fixed]);
+
+  // reset volume axes when variable changes
+  useEffect(() => {
+    setVolumeAxes(null);
+    setVolume(null);
+  }, [selected]);
+
+  // animation dim: first dim not in current plane
+  const animDim = useMemo(() => {
+    if (!variable) return null;
+    const rank = variable.shape.length;
+    if (rank < 3) return null;
+    let skip = new Set<number>([rank - 2, rank - 1]);
+    if (viewMode === 'map' && lonLat) skip = new Set([lonLat.lat, lonLat.lon]);
+    else if (viewMode === 'profile' && profileAxis >= 0) skip = new Set([profileAxis]);
+    else if (viewMode === 'volume' && volumeAxes) skip = new Set(volumeAxes);
+    for (let i = 0; i < rank; i++) {
+      if (!skip.has(i)) return { name: variable.dims[i], len: variable.shape[i] };
+    }
+    return null;
+  }, [variable, viewMode, lonLat, profileAxis, volumeAxes]);
+
+  useEffect(() => {
+    if (playing && animDim) {
+      playTimer.current = window.setInterval(() => {
+        setFixed((f) => {
+          const cur = f[animDim.name] ?? 0;
+          return { ...f, [animDim.name]: (cur + 1) % animDim.len };
+        });
+      }, 300);
+    }
+    return () => {
+      if (playTimer.current) window.clearInterval(playTimer.current);
+      playTimer.current = null;
+    };
+  }, [playing, animDim]);
+
+  useEffect(() => {
+    if (!animDim) setPlaying(false);
+  }, [animDim]);
+
+  const preview = useMemo(() => {
+    if (!slice) return null;
+    return downsamplePlane(slice.data, slice.nx, slice.ny);
+  }, [slice]);
+
+  const mapPreview = useMemo(() => {
+    if (!mapSlice) return null;
+    return downsamplePlane(mapSlice.data, mapSlice.nx, mapSlice.ny);
+  }, [mapSlice]);
+
+  // sliders: dims not in current plane
+  const sliderDims = useMemo(() => {
+    if (!variable) return [] as { name: string; len: number }[];
+    const rank = variable.shape.length;
+    let skip = new Set<number>();
+    if (viewMode === 'slice') skip = new Set([rank - 2, rank - 1]);
+    else if (viewMode === 'map' && lonLat) skip = new Set([lonLat.lat, lonLat.lon]);
+    else if (viewMode === 'profile' && profileAxis >= 0) skip = new Set([profileAxis]);
+    else if (viewMode === 'volume' && volumeAxes) skip = new Set(volumeAxes);
+    else skip = new Set([rank - 2, rank - 1]);
+    return variable.dims
+      .map((d, i) => ({ name: d, len: variable.shape[i], i }))
+      .filter((x) => !skip.has(x.i));
+  }, [variable, viewMode, lonLat, profileAxis, volumeAxes]);
+
+  const activeStats = viewMode === 'map' && mapSlice ? mapSlice : slice;
+
+  const exportCsv = useCallback(() => {
+    if (viewMode === 'profile' && profile && variable) {
+      const rows = [`${profile.coordName},${variable.shortName}`, ...profile.coords.map((c, i) => `${c},${profile.values[i]}`)];
+      downloadText(rows.join('\n'), `${variable.shortName}_profile.csv`, 'text/csv');
+      return;
+    }
+    const s = viewMode === 'map' ? mapSlice : slice;
+    if (!s || !variable) return;
+    const rows: string[] = [];
+    for (let j = 0; j < s.ny; j++) {
+      const row: string[] = [];
+      for (let i = 0; i < s.nx; i++) row.push(String(s.data[j * s.nx + i]));
+      rows.push(row.join(','));
+    }
+    downloadText(rows.join('\n'), `${variable.shortName}_slice.csv`, 'text/csv');
+  }, [slice, mapSlice, profile, variable, viewMode]);
+
+  const exportPng = useCallback(() => {
+    const s = viewMode === 'map' ? mapSlice : slice;
+    if (!s || !variable) return;
+    const lo = vmin === '' ? s.min : Number(vmin);
+    const hi = vmax === '' ? s.max : Number(vmax);
+    const canvas = document.createElement('canvas');
+    canvas.width = s.nx;
+    canvas.height = s.ny;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    const img = ctx.createImageData(s.nx, s.ny);
+    for (let i = 0; i < s.nx * s.ny; i++) {
+      const c = colorFor(s.data[i], lo, hi, colormap);
+      const o = i * 4;
+      if (!c) {
+        img.data[o + 3] = 0;
+      } else {
+        img.data[o] = c[0]; img.data[o + 1] = c[1]; img.data[o + 2] = c[2]; img.data[o + 3] = 255;
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+    const a = document.createElement('a');
+    a.href = canvas.toDataURL('image/png');
+    a.download = `${variable.shortName}_${viewMode}.png`;
+    a.click();
+  }, [slice, mapSlice, variable, viewMode, vmin, vmax, colormap]);
+
+  const exportAttrs = useCallback(() => {
+    if (!ds) return;
+    downloadText(JSON.stringify({
+      file: ds.fileName,
+      format: ds.format,
+      dimensions: ds.dimensions,
+      variables: ds.variables.map((v) => ({
+        name: v.name, shortName: v.shortName, dims: v.dims, shape: v.shape,
+        dtype: v.dtype, attrs: v.attrs, group: v.group, isCoord: v.isCoord,
+      })),
+      globalAttributes: ds.globalAttributes,
+    }, null, 2), `${ds.fileName}.meta.json`, 'application/json');
+  }, [ds]);
+
+  const vminNum = vmin === '' ? null : Number(vmin);
+  const vmaxNum = vmax === '' ? null : Number(vmax);
+  const effVmin = vminNum ?? activeStats?.min ?? 0;
+  const effVmax = vmaxNum ?? activeStats?.max ?? 1;
+
+  const canMap = !!lonLat && !!variable && variable.shape.length >= 2;
+  const canProfile = !!variable && variable.shape.length >= 2;
+  const canVolume = !!variable && variable.shape.length >= 3;
+
+  const tabDisabled = (m: ViewMode): boolean => {
+    if (m === 'map') return !canMap;
+    if (m === 'profile') return !canProfile;
+    if (m === 'volume') return !canVolume;
+    return false;
+  };
+
+  return (
+    <div className="flex h-full flex-col bg-[#0b0d14] text-slate-200">
+      <header className="flex h-12 shrink-0 items-center gap-2 border-b border-white/10 bg-[#11141d] px-3">
+        <div className="flex items-center gap-2">
+          <span className="flex h-7 w-7 items-center justify-center rounded-md bg-indigo-500/20 text-[15px]">◈</span>
+          <span className="text-[14px] font-semibold tracking-wide">NC Viewer</span>
+          {ds && (
+            <span className="rounded bg-white/5 px-1.5 py-0.5 font-mono text-[11px] text-slate-400">{ds.format}</span>
+          )}
+        </div>
+        <div className="mx-2 h-5 w-px bg-white/10" />
+        <button
+          onClick={openFile}
+          className="rounded-md bg-indigo-500 px-3 py-1.5 text-[13px] font-medium text-white hover:bg-indigo-400"
+        >
+          打开文件
+        </button>
+        <input
+          ref={fileInput}
+          type="file"
+          accept=".nc,.nc4,.cdf,.h5,.hdf5"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) void onWebFile(f);
+            e.target.value = '';
+          }}
+        />
+        {ds && (
+          <span className="truncate font-mono text-[12px] text-slate-400" title={ds.fileName}>{ds.fileName}</span>
+        )}
+        <div className="flex-1" />
+        {variable && activeStats && (
+          <span className="hidden font-mono text-[12px] text-slate-400 md:block">
+            {variable.shortName} [{variable.shape.join(' × ')}] · min {fmt(activeStats.min)} · max {fmt(activeStats.max)} · mean {fmt(activeStats.mean)}
+          </span>
+        )}
+        <button onClick={exportCsv} disabled={!activeStats && !(viewMode === 'profile' && profile)} className="rounded-md border border-white/10 px-2.5 py-1.5 text-[12px] text-slate-300 hover:bg-white/5 disabled:opacity-40">
+          导出 CSV
+        </button>
+        <button onClick={exportPng} disabled={!(viewMode === 'slice' || viewMode === 'map') || !activeStats} className="rounded-md border border-white/10 px-2.5 py-1.5 text-[12px] text-slate-300 hover:bg-white/5 disabled:opacity-40">
+          导出 PNG
+        </button>
+        <button onClick={exportAttrs} disabled={!ds} className="rounded-md border border-white/10 px-2.5 py-1.5 text-[12px] text-slate-300 hover:bg-white/5 disabled:opacity-40">
+          元数据 JSON
+        </button>
+      </header>
+
+      {error && (
+        <div className="shrink-0 border-b border-red-500/30 bg-red-500/10 px-3 py-1.5 text-[12px] text-red-300">
+          {error} <button className="ml-2 underline" onClick={() => setError(null)}>关闭</button>
+        </div>
+      )}
+
+      <div className="flex min-h-0 flex-1">
+        <aside className="w-64 shrink-0 border-r border-white/10 bg-[#0e1119]">
+          {ds ? (
+            <VarTree ds={ds} selected={selected} onSelect={handleSelect} />
+          ) : (
+            <EmptyHint loading={loading} onOpen={openFile} />
+          )}
+        </aside>
+
+        <main className="flex min-w-0 flex-1 flex-col bg-[#0b0d14]">
+          {variable && (slice || viewMode !== 'slice') ? (
+            <>
+              {/* view tabs */}
+              <div className="flex shrink-0 items-center gap-1 border-b border-white/5 px-3 py-1.5">
+                {VIEW_TABS.map((t) => {
+                  const dis = tabDisabled(t.id);
+                  return (
+                    <button
+                      key={t.id}
+                      disabled={dis}
+                      onClick={() => setViewMode(t.id)}
+                      title={dis ? '当前变量不支持该视图' : t.label}
+                      className={`rounded-md px-3 py-1 text-[12px] ${viewMode === t.id ? 'bg-indigo-500/25 text-indigo-100' : 'text-slate-400 hover:bg-white/5'} disabled:opacity-35`}
+                    >
+                      {t.label}
+                    </button>
+                  );
+                })}
+                {viewMode === 'map' && lonLat && variable && (
+                  <span className="ml-2 font-mono text-[11px] text-slate-500">
+                    {variable.dims[lonLat.lat]} × {variable.dims[lonLat.lon]}
+                  </span>
+                )}
+                {viewMode === 'profile' && variable && profileAxis >= 0 && (
+                  <label className="ml-2 flex items-center gap-1 text-[12px] text-slate-400">
+                    剖面轴
+                    <select
+                      value={profileAxis}
+                      onChange={(e) => setProfileAxis(Number(e.target.value))}
+                      className="rounded border border-white/10 bg-black/40 px-1.5 py-0.5 text-slate-200"
+                    >
+                      {variable.dims.map((d, i) => (
+                        <option key={d + i} value={i}>{d} ({variable.shape[i]}){roles[i] ? ` · ${roles[i]}` : ''}</option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+                {viewMode === 'volume' && volume && (
+                  <span className="ml-2 font-mono text-[11px] text-slate-500">
+                    {volume.zName} × {volume.yName} × {volume.xName} · {volume.nx}×{volume.ny}×{volume.nz}
+                  </span>
+                )}
+              </div>
+
+              {/* dim sliders */}
+              {sliderDims.length > 0 && (
+                <div className="shrink-0 space-y-1 border-b border-white/5 px-3 py-2">
+                  {sliderDims.map((d) => (
+                    <div key={d.name} className="flex items-center gap-2 text-[12px]">
+                      <span className="w-24 truncate font-mono text-slate-400" title={d.name}>{d.name}</span>
+                      <input
+                        type="range"
+                        min={0}
+                        max={d.len - 1}
+                        value={fixed[d.name] ?? 0}
+                        onChange={(e) => setFixed((f) => ({ ...f, [d.name]: Number(e.target.value) }))}
+                        className="h-1 flex-1 accent-indigo-500"
+                      />
+                      <span className="w-14 text-right font-mono text-slate-300">{fixed[d.name] ?? 0} / {d.len - 1}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* viewport */}
+              <div className="relative min-h-0 flex-1">
+                {viewMode === 'slice' && preview && slice && (
+                  <Heatmap
+                    data={preview.data}
+                    nx={preview.nx}
+                    ny={preview.ny}
+                    xCoords={slice.xCoords}
+                    yCoords={slice.yCoords}
+                    xName={slice.xName}
+                    yName={slice.yName}
+                    colormap={colormap}
+                    vmin={Number.isFinite(vminNum) ? vminNum : null}
+                    vmax={Number.isFinite(vmaxNum) ? vmaxNum : null}
+                    onProbe={(x, y, value) => setProbe({ x, y, value })}
+                  />
+                )}
+                {viewMode === 'map' && mapPreview && mapSlice && (
+                  <MapView
+                    data={mapPreview.data}
+                    nx={mapPreview.nx}
+                    ny={mapPreview.ny}
+                    lons={mapSlice.xCoords}
+                    lats={mapSlice.yCoords}
+                    colormap={colormap}
+                    vmin={Number.isFinite(effVmin) ? effVmin : mapSlice.min}
+                    vmax={Number.isFinite(effVmax) ? effVmax : mapSlice.max}
+                    onProbe={(x, y, value) => setProbe({ x, y, value })}
+                  />
+                )}
+                {viewMode === 'map' && !mapSlice && (
+                  <CenterNote text={viewLoading ? '地图投影计算中…' : '无经纬度维度，无法显示地图'} />
+                )}
+                {viewMode === 'profile' && profile && variable && (
+                  <ProfileView
+                    profile={profile}
+                    varName={variable.shortName}
+                    fixLabel={sliderDims.map((d) => `${d.name}=${fixed[d.name] ?? 0}`).join(' ') || '全选'}
+                  />
+                )}
+                {viewMode === 'profile' && !profile && (
+                  <CenterNote text={viewLoading ? '剖面计算中…' : '暂无剖面数据'} />
+                )}
+                {viewMode === 'volume' && volume && (
+                  <VolumeView
+                    volume={volume}
+                    colormap={colormap}
+                    vmin={Number.isFinite(effVmin) ? effVmin : volume.min}
+                    vmax={Number.isFinite(effVmax) ? effVmax : volume.max}
+                    iso={iso === '' ? (volume.min + volume.max) / 2 : Number(iso)}
+                    mode={volumeMode}
+                  />
+                )}
+                {viewMode === 'volume' && !volume && (
+                  <CenterNote text={viewLoading ? '体数据加载中…' : '需要 ≥3D 变量'} />
+                )}
+                {(sliceLoading || viewLoading) && (
+                  <div className="absolute right-3 top-2 rounded bg-black/60 px-2 py-1 text-[11px] text-slate-300">加载中…</div>
+                )}
+                {probe && (viewMode === 'slice' || viewMode === 'map') && activeStats && (
+                  <div className="absolute bottom-2 left-3 rounded bg-black/70 px-2 py-1 font-mono text-[11px] text-emerald-300">
+                    {activeStats.xName}={fmt(probe.x)} · {activeStats.yName}={fmt(probe.y)} · 值={fmt(probe.value)}
+                  </div>
+                )}
+              </div>
+
+              {/* bottom control bar */}
+              <div className="flex shrink-0 flex-wrap items-center gap-2 border-t border-white/10 bg-[#11141d] px-3 py-2 text-[12px]">
+                {animDim ? (
+                  <button
+                    onClick={() => setPlaying((p) => !p)}
+                    className="rounded-md border border-white/10 px-2.5 py-1 text-slate-200 hover:bg-white/5"
+                  >
+                    {playing ? '⏸ 暂停' : '▶ 播放'} <span className="text-slate-500">(空格)</span>
+                  </button>
+                ) : (
+                  <span className="text-slate-500">{variable.shape.length <= 2 ? '2D 变量 · 无时间维' : '无可动画维度'}</span>
+                )}
+                <label className="flex items-center gap-1.5 text-slate-400">
+                  色标
+                  <select
+                    value={colormap}
+                    onChange={(e) => setColormap(e.target.value as ColormapName)}
+                    className="rounded border border-white/10 bg-black/40 px-1.5 py-1 text-slate-200"
+                  >
+                    {COLORMAPS.map((c) => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </label>
+                <label className="flex items-center gap-1 text-slate-400">
+                  min
+                  <input
+                    value={vmin}
+                    onChange={(e) => setVmin(e.target.value)}
+                    placeholder={activeStats ? fmt(activeStats.min) : ''}
+                    className="w-20 rounded border border-white/10 bg-black/40 px-1.5 py-1 font-mono text-slate-200"
+                  />
+                </label>
+                <label className="flex items-center gap-1 text-slate-400">
+                  max
+                  <input
+                    value={vmax}
+                    onChange={(e) => setVmax(e.target.value)}
+                    placeholder={activeStats ? fmt(activeStats.max) : ''}
+                    className="w-20 rounded border border-white/10 bg-black/40 px-1.5 py-1 font-mono text-slate-200"
+                  />
+                </label>
+                {(vmin !== '' || vmax !== '') && (
+                  <button onClick={() => { setVmin(''); setVmax(''); }} className="text-slate-500 hover:text-slate-300">重置</button>
+                )}
+                {viewMode === 'volume' && (
+                  <>
+                    <label className="flex items-center gap-1.5 text-slate-400">
+                      模式
+                      <select
+                        value={volumeMode}
+                        onChange={(e) => setVolumeMode(e.target.value as 'slices' | 'surface')}
+                        className="rounded border border-white/10 bg-black/40 px-1.5 py-1 text-slate-200"
+                      >
+                        <option value="slices">正交切片</option>
+                        <option value="surface">等值面</option>
+                      </select>
+                    </label>
+                    {volumeMode === 'surface' && volume && (
+                      <label className="flex items-center gap-1 text-slate-400">
+                        等值
+                        <input
+                          value={iso}
+                          onChange={(e) => setIso(e.target.value)}
+                          placeholder={fmt((volume.min + volume.max) / 2)}
+                          className="w-20 rounded border border-white/10 bg-black/40 px-1.5 py-1 font-mono text-slate-200"
+                        />
+                      </label>
+                    )}
+                  </>
+                )}
+                <div className="flex-1" />
+                <span className="font-mono text-slate-500">
+                  {viewMode === 'slice' && preview && slice && (
+                    <>{preview.nx} × {preview.ny}{preview.nx !== slice.nx ? ` (降采样自 ${slice.nx} × ${slice.ny})` : ''}</>
+                  )}
+                  {viewMode === 'map' && mapPreview && mapSlice && (
+                    <>{mapPreview.nx} × {mapPreview.ny} 地图投影</>
+                  )}
+                  {viewMode === 'profile' && profile && (
+                    <>{profile.coords.length} 点剖面</>
+                  )}
+                  {viewMode === 'volume' && volume && (
+                    <>{volume.nx}×{volume.ny}×{volume.nz} 体</>
+                  )}
+                </span>
+              </div>
+            </>
+          ) : (
+            <div className="flex flex-1 items-center justify-center text-[14px] text-slate-500">
+              {loading ? '解析中…' : ds ? '选择一个 ≥2D 变量开始可视化' : '拖拽 .nc 文件到窗口，或点击「打开文件」'}
+            </div>
+          )}
+        </main>
+
+        <aside className="w-72 shrink-0 border-l border-white/10 bg-[#0e1119]">
+          {ds ? (
+            <Inspector variable={variable} globalAttrs={ds.globalAttributes} />
+          ) : (
+            <div className="p-3 text-[12px] text-slate-500">属性面板 · 打开文件后显示维度、类型与属性</div>
+          )}
+        </aside>
+      </div>
+
+      <footer className="flex h-7 shrink-0 items-center gap-3 border-t border-white/10 bg-[#11141d] px-3 font-mono text-[11px] text-slate-500">
+        <span>{ds ? `${ds.variables.length} 变量 · ${ds.dimensions.length} 维度` : '未打开文件'}</span>
+        <div className="flex-1" />
+        <span>{isTauri ? 'Tauri 桌面' : 'Web 预览'}</span>
+      </footer>
+    </div>
+  );
+}
+
+function downloadText(text: string, filename: string, type: string) {
+  const blob = new Blob([text], { type });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+
+function fmt(v: number): string {
+  if (!Number.isFinite(v)) return 'NaN';
+  return String(+v.toPrecision(6));
+}
+
+function CenterNote({ text }: { text: string }) {
+  return (
+    <div className="flex h-full items-center justify-center text-[13px] text-slate-500">{text}</div>
+  );
+}
+
+function EmptyHint({ loading, onOpen }: { loading: boolean; onOpen: () => void }) {
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-3 p-4 text-center">
+      <div className="text-3xl">◈</div>
+      <div className="text-[13px] text-slate-400">{loading ? '解析中…' : '尚未打开文件'}</div>
+      <button onClick={onOpen} className="rounded-md border border-white/10 px-3 py-1.5 text-[13px] text-slate-200 hover:bg-white/5">
+        选择 .nc 文件
+      </button>
+      <div className="text-[11px] leading-relaxed text-slate-600">支持 NetCDF-3 / NetCDF-4<br />也可直接拖拽到窗口</div>
+    </div>
+  );
+}
