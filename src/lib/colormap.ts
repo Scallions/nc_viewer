@@ -23,10 +23,13 @@ const STOPS: Record<ColormapName, string[]> = {
   RdYlBu: ['#d73027', '#fee090', '#e0f3f8', '#4575b4'],
 };
 
-const CACHE = new Map<ColormapName, [number, number, number][]>();
+// Keyed by name *and* step count: a table built for one resolution must never
+// be served to a caller that asked for another.
+const CACHE = new Map<string, [number, number, number][]>();
 
 function lut(name: ColormapName, steps = 256): [number, number, number][] {
-  const hit = CACHE.get(name);
+  const key = `${name}:${steps}`;
+  const hit = CACHE.get(key);
   if (hit) return hit;
   const stops = STOPS[name].map(hexToRgb);
   const out: [number, number, number][] = [];
@@ -41,7 +44,7 @@ function lut(name: ColormapName, steps = 256): [number, number, number][] {
       Math.round(a[2] + (b[2] - a[2]) * f),
     ]);
   }
-  CACHE.set(name, out);
+  CACHE.set(key, out);
   return out;
 }
 

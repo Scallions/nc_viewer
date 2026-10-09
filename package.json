@@ -8,6 +8,8 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview",
+    "test": "vitest run --config vitest.config.ts src/",
+    "test:watch": "vitest --config vitest.config.ts src/",
     "bench": "vitest run --config vitest.config.ts",
     "bench:backend": "cargo run --release --manifest-path src-tauri/Cargo.toml --example bench"
   },
